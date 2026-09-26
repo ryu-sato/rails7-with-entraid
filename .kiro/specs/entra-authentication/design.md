@@ -629,7 +629,7 @@ end
 - 構成: `test/support/oidc_provider_stub.rb` が、テスト用 RSA 鍵、その公開鍵を返す jwks、discovery と token の応答を WebMock でスタブし、指定のクレームで署名した ID token を返す。Strategy を Rack アプリとして組み込み、request phase と callback phase を実際に通す
 - 正常系: 正しい ID token で `omniauth.auth` が組み立てられ、`oid` / `tid` が取り出せる（2.1〜2.3）
 - 異常系（各ケースでセッションが開始されず `fail!` になり、例外が伝播しない）: `iss` 不一致、`aud` 不一致、`exp` 切れ、`nonce` 不一致、署名不正、`state` 不一致、`tid` 不一致（`VerifiedIdentity`）、discovery / jwks の取得失敗、IdP の `error=access_denied`（2.1〜2.5, 4.1, 4.2）
-- 例外の注入: gem が `Exception` 派生の `InvalidToken` 系と `JSON::JWT::Exception` を送出する経路を、上記の異常系で実際に発生させて固定する（gem 更新時の回帰の検知）
+- 例外の注入: gem が `InvalidToken` 系と `JSON::JWT::Exception`（いずれも `StandardError` 派生）を送出する経路を、上記の異常系で実際に発生させて固定する（gem 更新時の回帰の検知）
 - 最初の spike: このテスト基盤で、`raw_info` のキーの型と、userinfo 呼び出しを避けられるかを確定する
 
 ### Integration Tests
@@ -659,7 +659,7 @@ end
 
 ## Open Questions / Risks
 - （解決済み: 2.2 の spike）userinfo endpoint への依存は、Strategy が private の `user_info` を上書きして除いた（検証済み ID token のクレームのみ使用）。`raw_info` のキーは文字列。gem は `~> 0.8.0` に固定し、ガードのテストで回帰を検知する
-- `JSON::JWT::Exception` が `StandardError` 派生かの確認: Strategy 単体テストで確定する
+- （解決済み: 2.3）`InvalidToken` 系と `JSON::JWT::Exception` は `StandardError` 派生。OmniAuth が rescue するため 500 にはならないが、失敗キーが例外メッセージになるため、Strategy でキーを正規化する
 - `login_hint` クレームと `logout_hint` の実機での挙動、`post_logout_redirect_uri` が callback 以外の URL でも受理されるか（実機確認）
 - アプリの既定ロケール（`config.i18n.default_locale`）。本 spec は `ja` / `en` の両方の文言を提供し、既定は変更しない
 - セッション寿命の既定値（無操作 30 分、絶対 8 時間）は暫定。運用要件で見直す
