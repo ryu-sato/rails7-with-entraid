@@ -31,9 +31,14 @@ class EntraAuthAbsoluteTimeoutTest < ActiveSupport::TestCase
     @env_saved = ENV.delete("ENTRA_SESSION_ABSOLUTE_HOURS")
     @warden = FakeWarden.new
     freeze_time
+    # Only the absolute timeout is under test here, not Devise's idle timeout.
+    @saved_timeout_in = User.timeout_in
+    User.timeout_in = 10.years
+    RealStack.user = User.create!(tid: EntraAuth::Config.tenant_id, oid: SecureRandom.uuid, name: "alice")
   end
 
   teardown do
+    User.timeout_in = @saved_timeout_in
     Warden::Manager._after_set_user.replace(@saved_callbacks)
     ENV["ENTRA_SESSION_ABSOLUTE_HOURS"] = @env_saved if @env_saved
   end
@@ -162,18 +167,23 @@ class EntraAuthAbsoluteTimeoutTest < ActiveSupport::TestCase
   class RealStack
     include Rack::Test::Methods
 
+    # Devise (mapped since the :user routes exist) serializes real records only.
+    class << self
+      attr_accessor :user
+    end
+
     APP = lambda do |env|
       warden = env["warden"]
       case env["PATH_INFO"]
       when "/login"
-        warden.set_user("alice", event: :authentication, scope: :user)
+        warden.set_user(RealStack.user, event: :authentication, scope: :user)
         [ 200, {}, [ "logged in" ] ]
       when "/test_login"
-        warden.set_user("alice", scope: :user) # what sign_in / login_as does
+        warden.set_user(RealStack.user, scope: :user) # what sign_in / login_as does
         [ 200, {}, [ "test logged in" ] ]
       else
         user = warden.user(:user)
-        user ? [ 200, {}, [ "hello #{user}" ] ] : [ 401, {}, [ "unauthenticated" ] ]
+        user ? [ 200, {}, [ "hello #{user.name}" ] ] : [ 401, {}, [ "unauthenticated" ] ]
       end
     end
 

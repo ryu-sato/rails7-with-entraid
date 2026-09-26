@@ -1,0 +1,7 @@
+<main>
+  <h1><%= t("sessions.new.title") %></h1>
+  <p><%= t("sessions.new.description") %></p>
+  <%= button_to t("sessions.new.submit"), omniauth_authorize_path(:user, :openid_connect),
+                method: :post, data: { turbo: false },
+                form: { data: { turbo: false } } %>
+</main>
