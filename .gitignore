@@ -29,3 +29,6 @@
 !/tmp/storage/.keep
 
 /public/assets
+
+# claude
+/.claude/settings.local.json
