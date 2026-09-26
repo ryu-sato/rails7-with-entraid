@@ -59,7 +59,7 @@
   - _Boundary: EntraAuth::VerifiedIdentity_
   - _Depends: 2.1, 2.2_
   - _Requirements: 2.1, 2.5, 3.1, 3.4, 9.1_
-- [ ] 2.5 後続の認可処理が登録できる、サインイン可否ゲートの拡張点を作る
+- [x] 2.5 後続の認可処理が登録できる、サインイン可否ゲートの拡張点を作る
   - ゲートを 0 個以上登録でき、登録順に評価して最初の拒否で打ち切る。登録がなければ受理する
   - 拒否には、記録用の理由と、利用者に表示してよい文言を持たせる
   - ゲートが例外を送出した場合は、拒否として扱い、固定の失敗文言で記録する。評価自体は例外を投げない
@@ -193,3 +193,4 @@
 - gem の挙動（2.2）: `client_auth_method: :post` はボディに認証情報を入れる（Authorization ヘッダなし）。discovery は 1 往復あたり 2 回（request / callback）、jwks は 1 回。`discovery: true` は必須（なしだと "No Host Info"）。state / nonce / PKCE verifier は callback で session から削除される。OmniAuth の strategy ごとの `on_failure` は効かず、グローバルの `OmniAuth.config.on_failure` を使う（Strategy 単体テストは setup で設定し teardown で戻す）。omniauth-rails_csrf_protection の検証は、Rack 単体のテストでは `OmniAuth.config.request_validation_phase` を無効化して回避する（実ルートでの CSRF は 3.x / 4.x / 5.4 で確認する）
 - 失敗キーの表（2.3。`env['omniauth.error.type']` は Symbol、`env['omniauth.error']` は例外）: `:invalid_id_token`（発行元・宛先・期限・nonce・署名・alg none・不正な JWT・id_token 欠落）、`:discovery_failed`（discovery / jwks の取得失敗）、`:timeout`（token endpoint の読み取りタイムアウト）、`:failed_to_connect`（token endpoint の接続失敗）、`:callback_error`（その他の StandardError）。gem / IdP のキーはそのまま通る: `:csrf_detected`（state 不一致・欠落）、`:access_denied`（IdP でキャンセル）、`:invalid_grant` など、`:Unknown`（本文なしの token endpoint エラー）。4.2 のコントローラは、キーごとに固定文言を出し、`error.message` / `error_reason` は表示しない。未知のキーは汎用文言にする。`InvalidToken` 系と `JSON::JWT::Exception` は `StandardError` 派生（当初の調査は誤り）。`Exception` 全体は rescue しない。Faraday の例外は `Faraday::ConnectionFailed` / `Faraday::TimeoutError` になる。OmniAuth の `fail!` はログに例外メッセージを書くため、ログの扱いは 5.5 で確認する
 - VerifiedIdentity（2.4）: `oid` / `tid` は trim + 小文字に正規化して保持する（(tid, oid) の重複を大文字小文字の違いで作らないため）。3.3 の `User.from_identity` はこの正規化済みの値で検索・保存する。`claims` は生のクレーム（正規化しない）なので、識別には `identity.oid` / `identity.tid` を使い、`claims` を使わない（ゲートにも周知する）。`expected_tenant_id` が空なら `:tenant_mismatch`（fail-closed）。`Invalid` は StandardError で、メッセージに reason のみを含む
+- SignInGate（2.5）: `register(callable)` の callable は `(identity, user) -> Decision`。ゲートは自分の変更を、受理・拒否のどちらでも自分で保存する（evaluate は保存も巻き戻しもしない）。拒否の `message` は利用者に表示される（空なら固定の汎用文言 `entra_authentication.failures.generic`。ロケールのキーは 3.4 で定義する）。ゲートの例外・非 Decision の返り値は `:gate_error` の拒否（ログはクラス名のみ）。テスト共通の設定で各テストの前後に `reset!` が呼ばれる。`entra-authorization` は、`RoleSync.call(user:, raw_info: identity.claims)` を呼び `Rejected(reason)` を `SignInGate.reject(reason:, message: I18n.t("authorization.rejections.<reason>"))` に変換する薄いアダプタを、自身の initializer で登録して接続する（authorization 側の設計の「callback に 1 行」は、この登録に置き換える。authorization の実装時に対応）
