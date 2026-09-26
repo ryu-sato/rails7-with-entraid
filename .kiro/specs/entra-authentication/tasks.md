@@ -69,7 +69,7 @@
   - _Boundary: EntraAuth::SignInGate_
   - _Depends: 2.4_
   - _Requirements: 4.5, 9.1, 9.2, 9.3, 9.4, 9.5_
-- [ ] 2.6 (P) Entra ID のサインアウト URL を組み立てる部品を作る
+- [x] 2.6 (P) Entra ID のサインアウト URL を組み立てる部品を作る
   - テナント ID から決定的に URL を組み立て、Entra ID への通信を行わない
   - サインアウト後の戻り先を付ける。`logout_hint` があれば付け、なければ付けない。値は URL エンコードする
   - 完了条件: ヒントあり・なし、エンコードをユニットテストで確認できる
@@ -194,3 +194,4 @@
 - 失敗キーの表（2.3。`env['omniauth.error.type']` は Symbol、`env['omniauth.error']` は例外）: `:invalid_id_token`（発行元・宛先・期限・nonce・署名・alg none・不正な JWT・id_token 欠落）、`:discovery_failed`（discovery / jwks の取得失敗）、`:timeout`（token endpoint の読み取りタイムアウト）、`:failed_to_connect`（token endpoint の接続失敗）、`:callback_error`（その他の StandardError）。gem / IdP のキーはそのまま通る: `:csrf_detected`（state 不一致・欠落）、`:access_denied`（IdP でキャンセル）、`:invalid_grant` など、`:Unknown`（本文なしの token endpoint エラー）。4.2 のコントローラは、キーごとに固定文言を出し、`error.message` / `error_reason` は表示しない。未知のキーは汎用文言にする。`InvalidToken` 系と `JSON::JWT::Exception` は `StandardError` 派生（当初の調査は誤り）。`Exception` 全体は rescue しない。Faraday の例外は `Faraday::ConnectionFailed` / `Faraday::TimeoutError` になる。OmniAuth の `fail!` はログに例外メッセージを書くため、ログの扱いは 5.5 で確認する
 - VerifiedIdentity（2.4）: `oid` / `tid` は trim + 小文字に正規化して保持する（(tid, oid) の重複を大文字小文字の違いで作らないため）。3.3 の `User.from_identity` はこの正規化済みの値で検索・保存する。`claims` は生のクレーム（正規化しない）なので、識別には `identity.oid` / `identity.tid` を使い、`claims` を使わない（ゲートにも周知する）。`expected_tenant_id` が空なら `:tenant_mismatch`（fail-closed）。`Invalid` は StandardError で、メッセージに reason のみを含む
 - SignInGate（2.5）: `register(callable)` の callable は `(identity, user) -> Decision`。ゲートは自分の変更を、受理・拒否のどちらでも自分で保存する（evaluate は保存も巻き戻しもしない）。拒否の `message` は利用者に表示される（空なら固定の汎用文言 `entra_authentication.failures.generic`。ロケールのキーは 3.4 で定義する）。ゲートの例外・非 Decision の返り値は `:gate_error` の拒否（ログはクラス名のみ）。テスト共通の設定で各テストの前後に `reset!` が呼ばれる。`entra-authorization` は、`RoleSync.call(user:, raw_info: identity.claims)` を呼び `Rejected(reason)` を `SignInGate.reject(reason:, message: I18n.t("authorization.rejections.<reason>"))` に変換する薄いアダプタを、自身の initializer で登録して接続する（authorization 側の設計の「callback に 1 行」は、この登録に置き換える。authorization の実装時に対応）
+- LogoutUrl（2.6）: `LogoutUrl.build(logout_hint:)` は、テナントが GUID でない・サインアウト後の URI がないなど Config が不完全なとき `nil` を返す（例外にしない）。4.1 の SessionsController は、`nil` のときアプリ側のサインアウト後に、ローカルのサインアウト後の画面へ遷移する。`id_token_hint` / `client_id` は URL に含めない。ヒントは非空ならそのまま（strip せず）送る。Config を差し替えるテストの `with_settings` ヘルパーは config_test.rb / logout_url_test.rb に重複している（共通化は必要になったら test/support へ）
