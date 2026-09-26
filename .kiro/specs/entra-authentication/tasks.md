@@ -36,7 +36,7 @@
   - 問題の報告は項目名のみとし、秘密情報を含めない（`inspect` にも出さない）
   - 完了条件: 環境変数と credentials の優先順位、GUID 以外の拒否、時間の既定値と不正値、問題報告に値が含まれないことをユニットテストで確認できる
   - _Requirements: 6.6, 8.1, 8.2, 8.3, 8.4_
-- [ ] 2.2 OIDC 認証の strategy を用意し、正常な認証結果からクレームを取り出せることを確認する（最初の spike を含む）
+- [x] 2.2 OIDC 認証の strategy を用意し、正常な認証結果からクレームを取り出せることを確認する（最初の spike を含む）
   - 既存の OIDC strategy を継承し、固定のオプション（discovery、認可コード方式、PKCE、スコープ（openid / profile / email）、クライアント認証方式）だけを設定する。state と nonce は既定の有効を維持する。発行元・クライアント・リダイレクト URI は呼び出し側が渡す（2.2 のテストと、3.1 のプロバイダ登録）
   - spike: 認証結果のクレームのキーが文字列かシンボルか、および userinfo（Graph）への通信を避けられるかを、テスト基盤で確認して確定する。避けられない場合は標準の挙動を許容し、その結果を設計書の Open Questions に反映する
   - 完了条件: 正しい ID token で認証結果が組み立てられ、オブジェクト ID とテナント ID が取り出せる。state・nonce・PKCE の検証値が送受信されることをテストで確認できる
@@ -189,3 +189,5 @@
 - テスト基盤（1.4）: `test/support/oidc_provider_stub.rb` の `OidcProviderStub`（`id_token(**overrides)` で署名済み ID token、discovery / jwks / token / userinfo の WebMock スタブ）。既定クレームに `login_hint` は含まれないため、必要なら `id_token(login_hint: "...")` で渡す。OmniAuth のモックは `Helpers#set_omniauth_mock` で設定し、テスト後に自動リセットされる。`Devise::Test::IntegrationHelpers` は結合テストに組み込み済み（`sign_in` は Devise の mapping ができてから有効）。ENTRA_* はテスト環境で架空の値が既定として入る（設定済みの値は上書きしない）
 - ライブラリ読み込み（1.3）: `lib/entra_auth.rb` が `lib/entra_auth/*.rb` を名前順（absolute_timeout → config → logout_url → sign_in_gate → strategy → verified_identity）で require する。**ファイルのトップレベル・クラス本体で他の EntraAuth 定数を参照しない**（実行時のメソッド内のみ可）。継承元は gem のクラス（`OmniAuth::Strategies::OpenIDConnect`）だけにする
 - テスト方針: Feature Flag Protocol を behavioral タスクに適用する。新規の独立コンポーネントでも、フラグ OFF で RED（テスト失敗）→ ON で GREEN → フラグ除去で GREEN を確認する。レビュアーは RED の証拠をこのプロトコルと照合する
+- spike 結果（2.2）: `raw_info` のキーは文字列（`raw_info["oid"]` が使える）。素の gem は callback で userinfo（Graph）を必ず 1 回呼び、失敗（タイムアウト、HTTP 500）は `fail!(:"execution expired")` / `fail!(:"Unknown HttpError")` という不規則なキーになる。そのため Strategy は private の `user_info` を約 5 行上書きして、検証済み ID token のクレームのみを使う（userinfo は呼ばない）。gem は `~> 0.8.0` に固定済みで、ガードのテストがある。id_token がトークン応答にない場合は fail-closed（nil で例外）なので、2.3 のテストで扱う
+- gem の挙動（2.2）: `client_auth_method: :post` はボディに認証情報を入れる（Authorization ヘッダなし）。discovery は 1 往復あたり 2 回（request / callback）、jwks は 1 回。`discovery: true` は必須（なしだと "No Host Info"）。state / nonce / PKCE verifier は callback で session から削除される。OmniAuth の strategy ごとの `on_failure` は効かず、グローバルの `OmniAuth.config.on_failure` を使う（Strategy 単体テストは setup で設定し teardown で戻す）。omniauth-rails_csrf_protection の検証は、Rack 単体のテストでは `OmniAuth.config.request_validation_phase` を無効化して回避する（実ルートでの CSRF は 3.x / 4.x / 5.4 で確認する）

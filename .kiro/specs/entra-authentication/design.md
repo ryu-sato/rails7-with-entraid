@@ -658,7 +658,7 @@ end
 - 順序: Gemfile 更新 → `users` マイグレーション → Devise 設定・strategy → ルート・コントローラ → 保護の有効化（最後）。保護を最後に有効化すると、途中の段階でアプリが到達不能にならない
 
 ## Open Questions / Risks
-- userinfo endpoint への依存を除けるか、`raw_info` のキーの型（文字列 / シンボル）: 最初の spike で確定する。除けない場合は標準の挙動を許容する
+- （解決済み: 2.2 の spike）userinfo endpoint への依存は、Strategy が private の `user_info` を上書きして除いた（検証済み ID token のクレームのみ使用）。`raw_info` のキーは文字列。gem は `~> 0.8.0` に固定し、ガードのテストで回帰を検知する
 - `JSON::JWT::Exception` が `StandardError` 派生かの確認: Strategy 単体テストで確定する
 - `login_hint` クレームと `logout_hint` の実機での挙動、`post_logout_redirect_uri` が callback 以外の URL でも受理されるか（実機確認）
 - アプリの既定ロケール（`config.i18n.default_locale`）。本 spec は `ja` / `en` の両方の文言を提供し、既定は変更しない
