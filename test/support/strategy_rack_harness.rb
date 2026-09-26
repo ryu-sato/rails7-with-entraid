@@ -69,6 +69,10 @@ module StrategyRackHarness
 
   def strategy_options(overrides = {})
     {
+      # Devise (config/initializers/devise.rb) clears the global OmniAuth
+      # path_prefix (it sets it per mapping); this standalone stack keeps
+      # the default /auth prefix explicitly.
+      path_prefix: "/auth",
       issuer: oidc_stub.issuer,
       client_options: {
         identifier: oidc_stub.client_id,
