@@ -29,6 +29,10 @@ module ActiveSupport
 
     # Add more helper methods to be used by all tests here...
     include OidcProviderStub::Helpers
+
+    # Gate registrations are global state: never let them leak between tests.
+    setup { EntraAuth::SignInGate.reset! }
+    teardown { EntraAuth::SignInGate.reset! }
   end
 end
 
