@@ -190,17 +190,15 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
   test "POST /users/auth/openid_connect without a token is rejected" do
     install_oidc_provider_stub
     with_forgery_protection do
-      # The token check fails inside OmniAuth (logged as InvalidAuthenticityToken)
-      # and OmniAuth's on_failure hands over to Users::OmniauthCallbacksController
-      # (task 4.2). Until that exists the hand-over raises NameError; afterwards it
-      # redirects to the login page. Either way the flow must NOT reach Entra.
-      begin
-        post "/users/auth/openid_connect"
-        assert_not response.location.to_s.start_with?(oidc_stub.authorization_endpoint)
-      rescue NameError => e
-        assert_match(/Users/, e.message)
-      end
+      # The token check fails inside OmniAuth and its on_failure hands over to
+      # Users::OmniauthCallbacksController#failure, which returns to the login
+      # page. The flow must never reach Entra ID.
+      post "/users/auth/openid_connect"
+      assert_response :redirect
+      assert_equal new_user_session_url, response.location
+      assert_equal I18n.t("entra_authentication.failures.failed"), flash[:alert]
       assert_not_requested :get, oidc_stub.discovery_url
+      assert_not_requested :any, /login\.microsoftonline\.com/
     end
   end
 end
