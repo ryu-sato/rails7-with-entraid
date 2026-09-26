@@ -5,7 +5,7 @@
 - **Discovery Scope**: New Feature（`rails new` 直後の雛形に認証基盤を新設。外部 IdP 連携を含むため full discovery）
 - **Key Findings**:
   - devise 5.0.4 / omniauth 2.1.4 / omniauth_openid_connect 0.8.0 / openid_connect 2.5.0 / omniauth-rails_csrf_protection 2.0.1 は、Ruby 4.0 + Rails 7.2.4 で解決・require できる（全て MIT。viability チェックで確認済み）
-  - omniauth_openid_connect 0.8.0 は、ID token 検証エラー（`InvalidToken` 系）が `Exception` 派生のため strategy に rescue されず、そのままでは 500 になる。継承した strategy で rescue する必要がある
+  - omniauth_openid_connect 0.8.0 では、ID token 検証エラー（`InvalidToken` 系）と `JSON::JWT::Exception` は `StandardError` 派生（実装時に `ancestors` で確認。当初の調査の「`Exception` 派生」は誤り）で、OmniAuth の `call!` が `fail!(e.message, e)` に変換するため 500 にはならない。ただし失敗キーが例外メッセージそのもので不安定なうえ、トークンや IdP の本文が漏れうる。継承した strategy でキーを正規化する必要がある
   - Devise は `omniauthable` のみだと sessions のルートとコントローラを生成しない。ログイン画面とログアウトのルートは自前で定義する
   - Entra ID v2.0 の logout エンドポイントで文書化されているのは `post_logout_redirect_uri` と `logout_hint` のみ。`id_token_hint` は文書化されていない。また ID token（約 1.5〜3KB）は Cookie セッション（実効 約 2.5〜3KB）に入れると `CookieOverflow` の恐れがある。このため logout は `logout_hint` 方式にし、ID token を保持しない
 
@@ -23,7 +23,7 @@
   - `env['omniauth.auth']`: `uid`（既定 `sub`）、`info`、`credentials.id_token`（生の JWT）、`extra.raw_info`（userinfo 応答と ID token クレームをマージしたもの。`oid` / `tid` / `login_hint` を含む）
   - `user_info` は userinfo endpoint（Microsoft Graph）へ HTTP 要求を行う。Graph が使えないとサインインが失敗しうる
   - 失敗時: `error` パラメータは CallbackError、`fail!` のキーは `:csrf_detected` / `:missing_code` / `:invalid_jwt_algorithm` / `:timeout` / `:failed_to_connect` など。Devise は `omniauth_callbacks#failure` へ回す
-  - **落とし穴**: `OpenIDConnect::ResponseObject::IdToken::InvalidToken` は `Exception` 派生（`StandardError` ではない）。`ExpiredToken` / `InvalidIssuer` / `InvalidNonce` / `InvalidAudience` と `JSON::JWS::VerificationFailed` は strategy に rescue されず、ミドルウェアから生の例外として抜ける（本番では 500）
+  - **落とし穴（実装時に訂正）**: `OpenIDConnect::ResponseObject::IdToken::InvalidToken`（< `OpenIDConnect::Exception` < `StandardError`）も `JSON::JWT::Exception` も `StandardError` 派生で、OmniAuth の `call!` が rescue して `fail!(e.message, e)` にする。失敗キーが例外メッセージになる点が問題。以下は調査時の記述（不正確）: `ExpiredToken` / `InvalidIssuer` / `InvalidNonce` / `InvalidAudience` と `JSON::JWS::VerificationFailed` は strategy に rescue されず、ミドルウェアから生の例外として抜ける（本番では 500）
   - 組み込みの logout は `/users/auth/openid_connect/logout`（`other_phase`）。`id_token_hint` オプションは宣言だけで使われず、`post_logout_redirect_uri` のみが付く。Devise の sign-out 経路とは別物
 - **Implications**:
   - strategy を継承し、request phase と callback phase を rescue して `fail!` に変換する（要件 4.2）
@@ -95,10 +95,10 @@
 - **Follow-up**: 実機の Entra ID で `login_hint` の有無と logout の挙動を確認する。brief と roadmap にある `id_token_hint` の記述は、この決定で置き換わる
 
 ### Decision: strategy を継承して失敗を `fail!` に集約する
-- **Context**: `InvalidToken` 系が `Exception` 派生で rescue されない
+- **Context**: `InvalidToken` 系は `StandardError` 派生で OmniAuth が rescue するが、失敗キーが例外メッセージそのものになり不安定・漏えいのおそれがある（当初は `Exception` 派生と誤認していた）
 - **Selected Approach**: `EntraAuth::Strategy < OmniAuth::Strategies::OpenIDConnect`。`request_phase` / `callback_phase` を、`StandardError` と、`OpenIDConnect::ResponseObject::IdToken::InvalidToken`、`JSON::JWT::Exception` で rescue する。`fail!(:invalid_id_token | :discovery_failed | ...)` へ変換する。`Exception` 全体は rescue しない
 - **Rationale**: 捕捉範囲を既知の検証エラーに限定し、`SystemExit` などを飲み込まない
-- **Follow-up**: `JSON::JWT::Exception` が `StandardError` 派生かを実装時に確認する。テストで例外注入して固定する
+- **Follow-up**: （確認済み）`JSON::JWT::Exception` も `StandardError` 派生。テストで固定した
 
 ### Decision: userinfo endpoint に依存しない
 - **Context**: `user_info` が Microsoft Graph への HTTP 要求を伴う
