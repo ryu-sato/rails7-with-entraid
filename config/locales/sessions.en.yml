@@ -1,0 +1,14 @@
+# Login / signed-out / unavailable screens. Fixed text: no internal information.
+en:
+  sessions:
+    new:
+      title: "Sign in"
+      description: "Sign in with your organization account."
+      submit: "Sign in with Microsoft"
+    signed_out:
+      title: "Signed out"
+      message: "You have been signed out."
+      login: "Sign in again"
+    unavailable:
+      title: "Sign-in is temporarily unavailable"
+      message: "Sign-in is not available right now. Please try again later or contact your administrator."

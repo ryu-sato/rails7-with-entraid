@@ -18,6 +18,11 @@
   </head>
 
   <body>
+    <% [ :notice, :alert ].each do |type| %>
+      <% if flash[type].present? %>
+        <p class="flash flash-<%= type %>" role="<%= type == :alert ? 'alert' : 'status' %>"><%= flash[type] %></p>
+      <% end %>
+    <% end %>
     <%= yield %>
   </body>
 </html>
