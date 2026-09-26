@@ -94,7 +94,7 @@
   - _Boundary: Devise 初期化_
   - _Depends: 1.3, 2.1, 2.3_
   - _Requirements: 1.1, 6.1, 6.7, 8.4_
-- [ ] 3.2 認証の初期化処理を結線する（設定の検証、絶対時間の導入、ログのフィルタ）
+- [x] 3.2 認証の初期化処理を結線する（設定の検証、絶対時間の導入、ログのフィルタ）
   - 本番の起動時に設定を検証し、不備があれば項目名のみのエラーにする。ビルド時のアセット処理（ダミーの秘密鍵の環境）と、開発・テストでは検証しない
   - 絶対時間の失効を、初期化時に 1 回だけ導入する
   - ログのパラメータフィルタ（既存の設定ファイル）に、認可コードと state を追加する（既存の ID token 等の設定を確認する）
@@ -197,3 +197,4 @@
 - LogoutUrl（2.6）: `LogoutUrl.build(logout_hint:)` は、テナントが GUID でない・サインアウト後の URI がないなど Config が不完全なとき `nil` を返す（例外にしない）。4.1 の SessionsController は、`nil` のときアプリ側のサインアウト後に、ローカルのサインアウト後の画面へ遷移する。`id_token_hint` / `client_id` は URL に含めない。ヒントは非空ならそのまま（strip せず）送る。Config を差し替えるテストの `with_settings` ヘルパーは config_test.rb / logout_url_test.rb に重複している（共通化は必要になったら test/support へ）
 - AbsoluteTimeout（2.7）: `EntraAuth::AbsoluteTimeout.install!`（冪等。`HOOK` の同一性で二重登録を防ぐ）は 3.2 の initializer から 1 回呼ぶ。`:authentication` と `:set_user`（Devise のテスト用 `sign_in` / `login_as`）で `login_at` を記録し、`:fetch` のみで失効を判定する（上限ちょうどは有効、`now - login_at > 上限` で失効、`login_at` 欠落も失効）。失効時は `warden.logout(scope)` して `throw :warden, message: :absolute_timeout`。本番の callback（4.2）は `sign_in(:user, user, event: :authentication)` を使うこと。i18n キー `devise.failure.absolute_timeout` は 3.4 で定義する。本番では `login_at` は Warden のセッション（暗号化・署名済みの Cookie）に入るのでクライアントは偽造できない
 - Devise 初期化（3.1）: `config/initializers/devise.rb` は `entra_auth.rb` より先に読まれるため、自身で `require "entra_auth"` する。OmniAuth プロバイダは `strategy_class: EntraAuth::Strategy` + `setup:`（lambda）で、issuer と client_options（identifier / secret / redirect_uri）を要求ごとに Config から解決する（起動に ENTRA_* は不要。未設定でも lambda は例外にならず nil のまま）。`Devise.timeout_in` は起動時に Config.idle_timeout で固定される（変更には再起動が必要）。Devise は OmniAuth のグローバルな `path_prefix` を nil にする（devise 5.0.4 の `lib/devise/omniauth.rb`）。実アプリでは `devise_for` のルート定義が `/users/auth` を設定する（`omniauth_path_prefix` は手動で設定しない）。Strategy 単体テストの harness は `path_prefix: "/auth"` を明示している。**4.1 で、ルートが `/users/auth/openid_connect` と `/users/auth/openid_connect/callback` になり、redirect_uri と一致することを確認する**
+- 初期化の結線（3.2）: `config/initializers/entra_auth.rb` は全環境で `AbsoluteTimeout.install!` を呼び、本番（`SECRET_KEY_BASE_DUMMY` がないとき）だけ `Config.validate!` を起動時に実行する（エラーは項目名のみ）。**運用注意（5.6 の手順書に書く）**: 本番で `SECRET_KEY_BASE_DUMMY` なしに起動するコマンド（`db:migrate`、console、runner）は、ENTRA_* が未設定だと失敗する。Docker のビルド（`SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile`）は影響なし。`bin/docker-entrypoint` の `db:prepare` は実行時なので本物の ENTRA_* がある。`filter_parameters` に `code` / `state` / `nonce`（完全一致の正規表現）と `login_hint` を追加済み（`id_token` / `access_token` / `client_secret` は既存の `:token` / `:secret` で伏せられる）
