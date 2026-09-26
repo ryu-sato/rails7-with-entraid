@@ -76,7 +76,7 @@
   - _Boundary: EntraAuth::LogoutUrl_
   - _Depends: 2.1_
   - _Requirements: 7.2, 7.3, 7.4_
-- [ ] 2.7 (P) ログインからの絶対時間でセッションを失効させる部品を作る
+- [x] 2.7 (P) ログインからの絶対時間でセッションを失効させる部品を作る
   - 認証イベントと、テスト用のログインヘルパーが発生させるイベントで、ログイン時刻をセッションに記録する（再サインインのたびに更新する）
   - 既存セッションの復元イベントでのみ、時刻の欠落、または絶対時間の超過を検知したら、セッションを終了して、絶対時間の失効を示す理由で認証を要求する。それ以外のイベントでは失効させない（テスト用のログインが直ちに失効しないようにするため）
   - 二重に登録されないように、導入は 1 回だけにする
@@ -195,3 +195,4 @@
 - VerifiedIdentity（2.4）: `oid` / `tid` は trim + 小文字に正規化して保持する（(tid, oid) の重複を大文字小文字の違いで作らないため）。3.3 の `User.from_identity` はこの正規化済みの値で検索・保存する。`claims` は生のクレーム（正規化しない）なので、識別には `identity.oid` / `identity.tid` を使い、`claims` を使わない（ゲートにも周知する）。`expected_tenant_id` が空なら `:tenant_mismatch`（fail-closed）。`Invalid` は StandardError で、メッセージに reason のみを含む
 - SignInGate（2.5）: `register(callable)` の callable は `(identity, user) -> Decision`。ゲートは自分の変更を、受理・拒否のどちらでも自分で保存する（evaluate は保存も巻き戻しもしない）。拒否の `message` は利用者に表示される（空なら固定の汎用文言 `entra_authentication.failures.generic`。ロケールのキーは 3.4 で定義する）。ゲートの例外・非 Decision の返り値は `:gate_error` の拒否（ログはクラス名のみ）。テスト共通の設定で各テストの前後に `reset!` が呼ばれる。`entra-authorization` は、`RoleSync.call(user:, raw_info: identity.claims)` を呼び `Rejected(reason)` を `SignInGate.reject(reason:, message: I18n.t("authorization.rejections.<reason>"))` に変換する薄いアダプタを、自身の initializer で登録して接続する（authorization 側の設計の「callback に 1 行」は、この登録に置き換える。authorization の実装時に対応）
 - LogoutUrl（2.6）: `LogoutUrl.build(logout_hint:)` は、テナントが GUID でない・サインアウト後の URI がないなど Config が不完全なとき `nil` を返す（例外にしない）。4.1 の SessionsController は、`nil` のときアプリ側のサインアウト後に、ローカルのサインアウト後の画面へ遷移する。`id_token_hint` / `client_id` は URL に含めない。ヒントは非空ならそのまま（strip せず）送る。Config を差し替えるテストの `with_settings` ヘルパーは config_test.rb / logout_url_test.rb に重複している（共通化は必要になったら test/support へ）
+- AbsoluteTimeout（2.7）: `EntraAuth::AbsoluteTimeout.install!`（冪等。`HOOK` の同一性で二重登録を防ぐ）は 3.2 の initializer から 1 回呼ぶ。`:authentication` と `:set_user`（Devise のテスト用 `sign_in` / `login_as`）で `login_at` を記録し、`:fetch` のみで失効を判定する（上限ちょうどは有効、`now - login_at > 上限` で失効、`login_at` 欠落も失効）。失効時は `warden.logout(scope)` して `throw :warden, message: :absolute_timeout`。本番の callback（4.2）は `sign_in(:user, user, event: :authentication)` を使うこと。i18n キー `devise.failure.absolute_timeout` は 3.4 で定義する。本番では `login_at` は Warden のセッション（暗号化・署名済みの Cookie）に入るのでクライアントは偽造できない
