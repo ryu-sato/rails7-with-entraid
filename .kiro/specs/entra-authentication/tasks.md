@@ -102,7 +102,7 @@
   - _Boundary: EntraAuth 初期化_
   - _Depends: 2.1, 2.7, 3.1_
   - _Requirements: 8.2, 8.3_
-- [ ] 3.3 利用者モデルを作り、検証済みの認証結果から特定・作成できるようにする
+- [x] 3.3 利用者モデルを作り、検証済みの認証結果から特定・作成できるようにする
   - サインイン用のモジュールと失効のモジュールのみを持ち、パスワード認証や Remember me は持たない
   - テナント ID とオブジェクト ID の組で既存の利用者を取得し、なければ作成する。名前とメールアドレスはログインのたびに最新へ更新する
   - 同時に作成が競合した場合は、一意制約の違反を捕捉して再取得し、重複を作らない
@@ -198,3 +198,4 @@
 - AbsoluteTimeout（2.7）: `EntraAuth::AbsoluteTimeout.install!`（冪等。`HOOK` の同一性で二重登録を防ぐ）は 3.2 の initializer から 1 回呼ぶ。`:authentication` と `:set_user`（Devise のテスト用 `sign_in` / `login_as`）で `login_at` を記録し、`:fetch` のみで失効を判定する（上限ちょうどは有効、`now - login_at > 上限` で失効、`login_at` 欠落も失効）。失効時は `warden.logout(scope)` して `throw :warden, message: :absolute_timeout`。本番の callback（4.2）は `sign_in(:user, user, event: :authentication)` を使うこと。i18n キー `devise.failure.absolute_timeout` は 3.4 で定義する。本番では `login_at` は Warden のセッション（暗号化・署名済みの Cookie）に入るのでクライアントは偽造できない
 - Devise 初期化（3.1）: `config/initializers/devise.rb` は `entra_auth.rb` より先に読まれるため、自身で `require "entra_auth"` する。OmniAuth プロバイダは `strategy_class: EntraAuth::Strategy` + `setup:`（lambda）で、issuer と client_options（identifier / secret / redirect_uri）を要求ごとに Config から解決する（起動に ENTRA_* は不要。未設定でも lambda は例外にならず nil のまま）。`Devise.timeout_in` は起動時に Config.idle_timeout で固定される（変更には再起動が必要）。Devise は OmniAuth のグローバルな `path_prefix` を nil にする（devise 5.0.4 の `lib/devise/omniauth.rb`）。実アプリでは `devise_for` のルート定義が `/users/auth` を設定する（`omniauth_path_prefix` は手動で設定しない）。Strategy 単体テストの harness は `path_prefix: "/auth"` を明示している。**4.1 で、ルートが `/users/auth/openid_connect` と `/users/auth/openid_connect/callback` になり、redirect_uri と一致することを確認する**
 - 初期化の結線（3.2）: `config/initializers/entra_auth.rb` は全環境で `AbsoluteTimeout.install!` を呼び、本番（`SECRET_KEY_BASE_DUMMY` がないとき）だけ `Config.validate!` を起動時に実行する（エラーは項目名のみ）。**運用注意（5.6 の手順書に書く）**: 本番で `SECRET_KEY_BASE_DUMMY` なしに起動するコマンド（`db:migrate`、console、runner）は、ENTRA_* が未設定だと失敗する。Docker のビルド（`SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile`）は影響なし。`bin/docker-entrypoint` の `db:prepare` は実行時なので本物の ENTRA_* がある。`filter_parameters` に `code` / `state` / `nonce`（完全一致の正規表現）と `login_hint` を追加済み（`id_token` / `access_token` / `client_secret` は既存の `:token` / `:secret` で伏せられる）
+- User（3.3）: `devise :omniauthable, :timeoutable` のみ（`User.devise_modules == [:omniauthable, :timeoutable]`）。`User.from_identity(identity)` は正規化済みの `identity.tid` / `identity.oid` で検索・作成し、name / email は毎回最新値（nil を含む）で上書きする（表示専用のミラー）。それ以外の属性（将来の `roles` など）には触れない。作成の競合は `RecordNotUnique` を捕捉して再検索する（最大 3 回）。呼び出し元が明示的な外側のトランザクション内にいる場合は PostgreSQL で影響しうるが、設計上そのような呼び出しはない（必要なら `transaction(requires_new: true)` で補強）。テストの競合再現は `User.find_by` のスタブに依存する。セッションは `[id, nil]`（salt なし）で、id のみで復元される
