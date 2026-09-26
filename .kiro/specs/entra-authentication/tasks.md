@@ -86,7 +86,7 @@
   - _Requirements: 6.2, 6.4, 6.5_
 
 - [ ] 3. Core: アプリ側の設定、利用者モデル、文言
-- [ ] 3.1 Devise と OmniAuth プロバイダを設定する
+- [x] 3.1 Devise と OmniAuth プロバイダを設定する
   - 認証はサインイン用のモジュールのみを有効にし、パスワード、Remember me、その他のモジュールは使わない
   - 継承した strategy をプロバイダとして登録し、設定部品の値（発行元、クライアント、リダイレクト URI）を渡す。開発環境で値が未設定でも起動できるよう、値は要求時に解決する（またはテスト環境の値を使う）
   - 無操作時間を Devise の失効設定に反映する。メールアドレス列は表示専用で、パスワード認証のモジュールを持たないため、キーの正規化（大文字小文字・空白）の対象を空にする。サインアウトは全スコープのセッションをリセットする設定を維持する
@@ -196,3 +196,4 @@
 - SignInGate（2.5）: `register(callable)` の callable は `(identity, user) -> Decision`。ゲートは自分の変更を、受理・拒否のどちらでも自分で保存する（evaluate は保存も巻き戻しもしない）。拒否の `message` は利用者に表示される（空なら固定の汎用文言 `entra_authentication.failures.generic`。ロケールのキーは 3.4 で定義する）。ゲートの例外・非 Decision の返り値は `:gate_error` の拒否（ログはクラス名のみ）。テスト共通の設定で各テストの前後に `reset!` が呼ばれる。`entra-authorization` は、`RoleSync.call(user:, raw_info: identity.claims)` を呼び `Rejected(reason)` を `SignInGate.reject(reason:, message: I18n.t("authorization.rejections.<reason>"))` に変換する薄いアダプタを、自身の initializer で登録して接続する（authorization 側の設計の「callback に 1 行」は、この登録に置き換える。authorization の実装時に対応）
 - LogoutUrl（2.6）: `LogoutUrl.build(logout_hint:)` は、テナントが GUID でない・サインアウト後の URI がないなど Config が不完全なとき `nil` を返す（例外にしない）。4.1 の SessionsController は、`nil` のときアプリ側のサインアウト後に、ローカルのサインアウト後の画面へ遷移する。`id_token_hint` / `client_id` は URL に含めない。ヒントは非空ならそのまま（strip せず）送る。Config を差し替えるテストの `with_settings` ヘルパーは config_test.rb / logout_url_test.rb に重複している（共通化は必要になったら test/support へ）
 - AbsoluteTimeout（2.7）: `EntraAuth::AbsoluteTimeout.install!`（冪等。`HOOK` の同一性で二重登録を防ぐ）は 3.2 の initializer から 1 回呼ぶ。`:authentication` と `:set_user`（Devise のテスト用 `sign_in` / `login_as`）で `login_at` を記録し、`:fetch` のみで失効を判定する（上限ちょうどは有効、`now - login_at > 上限` で失効、`login_at` 欠落も失効）。失効時は `warden.logout(scope)` して `throw :warden, message: :absolute_timeout`。本番の callback（4.2）は `sign_in(:user, user, event: :authentication)` を使うこと。i18n キー `devise.failure.absolute_timeout` は 3.4 で定義する。本番では `login_at` は Warden のセッション（暗号化・署名済みの Cookie）に入るのでクライアントは偽造できない
+- Devise 初期化（3.1）: `config/initializers/devise.rb` は `entra_auth.rb` より先に読まれるため、自身で `require "entra_auth"` する。OmniAuth プロバイダは `strategy_class: EntraAuth::Strategy` + `setup:`（lambda）で、issuer と client_options（identifier / secret / redirect_uri）を要求ごとに Config から解決する（起動に ENTRA_* は不要。未設定でも lambda は例外にならず nil のまま）。`Devise.timeout_in` は起動時に Config.idle_timeout で固定される（変更には再起動が必要）。Devise は OmniAuth のグローバルな `path_prefix` を nil にする（devise 5.0.4 の `lib/devise/omniauth.rb`）。実アプリでは `devise_for` のルート定義が `/users/auth` を設定する（`omniauth_path_prefix` は手動で設定しない）。Strategy 単体テストの harness は `path_prefix: "/auth"` を明示している。**4.1 で、ルートが `/users/auth/openid_connect` と `/users/auth/openid_connect/callback` になり、redirect_uri と一致することを確認する**
