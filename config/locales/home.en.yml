@@ -1,0 +1,9 @@
+# Top page and the layout's sign-out button. Fixed text: no internal information.
+en:
+  home:
+    index:
+      title: "Home"
+      greeting: "Signed in as %{name}"
+      unnamed: "Signed-in user"
+  layouts:
+    sign_out: "Sign out"

@@ -1,0 +1,9 @@
+# トップページとレイアウトのサインアウトボタンの固定文言。内部情報は含めない。
+ja:
+  home:
+    index:
+      title: "ホーム"
+      greeting: "%{name} としてサインイン中"
+      unnamed: "サインイン中の利用者"
+  layouts:
+    sign_out: "サインアウト"

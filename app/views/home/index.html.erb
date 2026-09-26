@@ -1,0 +1,4 @@
+<main>
+  <h1><%= t("home.index.title") %></h1>
+  <p><%= t("home.index.greeting", name: current_user.name.presence || t("home.index.unnamed")) %></p>
+</main>
