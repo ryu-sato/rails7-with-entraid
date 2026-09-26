@@ -182,3 +182,10 @@
   - 完了条件: 手順書が存在し、必須項目と環境変数の一覧が設定部品の項目と一致する。ステアリングの構造文書に例外が記載されている
   - _Depends: 2.1, 2.2_
   - _Requirements: 8.5_
+
+## Implementation Notes
+- 実行環境: rails / rake は必ず `env -u DATABASE_URL` を前置する（DATABASE_URL は到達不能な PostgreSQL を指すため）。検証コマンド: `env -u DATABASE_URL bin/rails test` / `bin/rubocop` / `bin/brakeman --no-pager`（Rails 7.2.4 EOL の警告 1 件は既存で許容）/ `env -u DATABASE_URL bin/rails zeitwerk:check`
+- 実 Entra ID への通信は行わない。テストは WebMock（`disable_net_connect!`、許可リストなし）とテスト用 RSA 鍵のスタブのみ。開発環境でも、`/users/auth/openid_connect` への POST や `bin/dev` でのログイン操作をしない（discovery が実際の login.microsoftonline.com へ飛ぶため）。3.1 と 4.x の smoke は起動確認（`bin/rails runner` / `bin/rails routes`）に限り、リクエストフェーズの確認はテストスイート内で行う
+- テスト基盤（1.4）: `test/support/oidc_provider_stub.rb` の `OidcProviderStub`（`id_token(**overrides)` で署名済み ID token、discovery / jwks / token / userinfo の WebMock スタブ）。既定クレームに `login_hint` は含まれないため、必要なら `id_token(login_hint: "...")` で渡す。OmniAuth のモックは `Helpers#set_omniauth_mock` で設定し、テスト後に自動リセットされる。`Devise::Test::IntegrationHelpers` は結合テストに組み込み済み（`sign_in` は Devise の mapping ができてから有効）。ENTRA_* はテスト環境で架空の値が既定として入る（設定済みの値は上書きしない）
+- ライブラリ読み込み（1.3）: `lib/entra_auth.rb` が `lib/entra_auth/*.rb` を名前順（absolute_timeout → config → logout_url → sign_in_gate → strategy → verified_identity）で require する。**ファイルのトップレベル・クラス本体で他の EntraAuth 定数を参照しない**（実行時のメソッド内のみ可）。継承元は gem のクラス（`OmniAuth::Strategies::OpenIDConnect`）だけにする
+- テスト方針: Feature Flag Protocol を behavioral タスクに適用する。新規の独立コンポーネントでも、フラグ OFF で RED（テスト失敗）→ ON で GREEN → フラグ除去で GREEN を確認する。レビュアーは RED の証拠をこのプロトコルと照合する
