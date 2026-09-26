@@ -110,7 +110,7 @@
   - _Boundary: User_
   - _Depends: 1.2, 3.1_
   - _Requirements: 1.4, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 6.7_
-- [ ] 3.4 (P) 失効・失敗・サインアウトの利用者向け文言を用意する
+- [x] 3.4 (P) 失効・失敗・サインアウトの利用者向け文言を用意する
   - 日本語と英語の両方で、無操作の失効、絶対時間の失効、サインイン失敗（キャンセルとその他を区別）、サインイン失敗の再試行の案内を用意する
   - 失敗の文言に、内部の設定値、例外の内容、クレームを含めない固定文言にする
   - 完了条件: 両言語で、各文言のキーが解決でき、欠落したキーがないことをテストで確認できる
@@ -199,3 +199,4 @@
 - Devise 初期化（3.1）: `config/initializers/devise.rb` は `entra_auth.rb` より先に読まれるため、自身で `require "entra_auth"` する。OmniAuth プロバイダは `strategy_class: EntraAuth::Strategy` + `setup:`（lambda）で、issuer と client_options（identifier / secret / redirect_uri）を要求ごとに Config から解決する（起動に ENTRA_* は不要。未設定でも lambda は例外にならず nil のまま）。`Devise.timeout_in` は起動時に Config.idle_timeout で固定される（変更には再起動が必要）。Devise は OmniAuth のグローバルな `path_prefix` を nil にする（devise 5.0.4 の `lib/devise/omniauth.rb`）。実アプリでは `devise_for` のルート定義が `/users/auth` を設定する（`omniauth_path_prefix` は手動で設定しない）。Strategy 単体テストの harness は `path_prefix: "/auth"` を明示している。**4.1 で、ルートが `/users/auth/openid_connect` と `/users/auth/openid_connect/callback` になり、redirect_uri と一致することを確認する**
 - 初期化の結線（3.2）: `config/initializers/entra_auth.rb` は全環境で `AbsoluteTimeout.install!` を呼び、本番（`SECRET_KEY_BASE_DUMMY` がないとき）だけ `Config.validate!` を起動時に実行する（エラーは項目名のみ）。**運用注意（5.6 の手順書に書く）**: 本番で `SECRET_KEY_BASE_DUMMY` なしに起動するコマンド（`db:migrate`、console、runner）は、ENTRA_* が未設定だと失敗する。Docker のビルド（`SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile`）は影響なし。`bin/docker-entrypoint` の `db:prepare` は実行時なので本物の ENTRA_* がある。`filter_parameters` に `code` / `state` / `nonce`（完全一致の正規表現）と `login_hint` を追加済み（`id_token` / `access_token` / `client_secret` は既存の `:token` / `:secret` で伏せられる）
 - User（3.3）: `devise :omniauthable, :timeoutable` のみ（`User.devise_modules == [:omniauthable, :timeoutable]`）。`User.from_identity(identity)` は正規化済みの `identity.tid` / `identity.oid` で検索・作成し、name / email は毎回最新値（nil を含む）で上書きする（表示専用のミラー）。それ以外の属性（将来の `roles` など）には触れない。作成の競合は `RecordNotUnique` を捕捉して再検索する（最大 3 回）。呼び出し元が明示的な外側のトランザクション内にいる場合は PostgreSQL で影響しうるが、設計上そのような呼び出しはない（必要なら `transaction(requires_new: true)` で補強）。テストの競合再現は `User.find_by` のスタブに依存する。セッションは `[id, nil]`（salt なし）で、id のみで復元される
+- 文言（3.4）: `config/locales/entra_authentication.{ja,en}.yml` に、`devise.failure.timeout`（無操作）/ `devise.failure.absolute_timeout`（絶対時間）/ `devise.failure.unauthenticated`、`entra_authentication.failures.{cancelled, failed, generic, rejected}` を定義（静的で内部情報なし。`rejected` は未使用の予備）。アプリの既定ロケールは `:en` のまま。4.2 は、失敗キー `access_denied` → `cancelled`、それ以外 → `failed` を表示する。4.1 / 4.3 の画面用の文言は、別のロケールファイル（例: `config/locales/sessions.{ja,en}.yml`）に追加する。SignInGate のテストは、現在のロケールの `generic` キーと比較する
