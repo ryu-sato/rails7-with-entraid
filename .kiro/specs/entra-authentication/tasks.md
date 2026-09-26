@@ -51,7 +51,7 @@
   - _Boundary: EntraAuth::Strategy_
   - _Depends: 2.2_
   - _Requirements: 2.4, 2.5, 4.1, 4.2_
-- [ ] 2.4 (P) 検証済みの認証結果から、サインインに使う項目を取り出す値オブジェクトを作る
+- [x] 2.4 (P) 検証済みの認証結果から、サインインに使う項目を取り出す値オブジェクトを作る
   - オブジェクト ID とテナント ID を必須とし、欠けている場合は失敗にする。テナント ID が設定と異なる場合も失敗にする
   - 名前、メールアドレス、`login_hint` は任意項目として扱い、特定には使わない。クレーム全体を、キーを文字列に正規化した読み取り専用の値として保持する
   - アクセス用の資格情報や、ID token の生の文字列は含めない
@@ -192,3 +192,4 @@
 - spike 結果（2.2）: `raw_info` のキーは文字列（`raw_info["oid"]` が使える）。素の gem は callback で userinfo（Graph）を必ず 1 回呼び、失敗（タイムアウト、HTTP 500）は `fail!(:"execution expired")` / `fail!(:"Unknown HttpError")` という不規則なキーになる。そのため Strategy は private の `user_info` を約 5 行上書きして、検証済み ID token のクレームのみを使う（userinfo は呼ばない）。gem は `~> 0.8.0` に固定済みで、ガードのテストがある。id_token がトークン応答にない場合は fail-closed（nil で例外）なので、2.3 のテストで扱う
 - gem の挙動（2.2）: `client_auth_method: :post` はボディに認証情報を入れる（Authorization ヘッダなし）。discovery は 1 往復あたり 2 回（request / callback）、jwks は 1 回。`discovery: true` は必須（なしだと "No Host Info"）。state / nonce / PKCE verifier は callback で session から削除される。OmniAuth の strategy ごとの `on_failure` は効かず、グローバルの `OmniAuth.config.on_failure` を使う（Strategy 単体テストは setup で設定し teardown で戻す）。omniauth-rails_csrf_protection の検証は、Rack 単体のテストでは `OmniAuth.config.request_validation_phase` を無効化して回避する（実ルートでの CSRF は 3.x / 4.x / 5.4 で確認する）
 - 失敗キーの表（2.3。`env['omniauth.error.type']` は Symbol、`env['omniauth.error']` は例外）: `:invalid_id_token`（発行元・宛先・期限・nonce・署名・alg none・不正な JWT・id_token 欠落）、`:discovery_failed`（discovery / jwks の取得失敗）、`:timeout`（token endpoint の読み取りタイムアウト）、`:failed_to_connect`（token endpoint の接続失敗）、`:callback_error`（その他の StandardError）。gem / IdP のキーはそのまま通る: `:csrf_detected`（state 不一致・欠落）、`:access_denied`（IdP でキャンセル）、`:invalid_grant` など、`:Unknown`（本文なしの token endpoint エラー）。4.2 のコントローラは、キーごとに固定文言を出し、`error.message` / `error_reason` は表示しない。未知のキーは汎用文言にする。`InvalidToken` 系と `JSON::JWT::Exception` は `StandardError` 派生（当初の調査は誤り）。`Exception` 全体は rescue しない。Faraday の例外は `Faraday::ConnectionFailed` / `Faraday::TimeoutError` になる。OmniAuth の `fail!` はログに例外メッセージを書くため、ログの扱いは 5.5 で確認する
+- VerifiedIdentity（2.4）: `oid` / `tid` は trim + 小文字に正規化して保持する（(tid, oid) の重複を大文字小文字の違いで作らないため）。3.3 の `User.from_identity` はこの正規化済みの値で検索・保存する。`claims` は生のクレーム（正規化しない）なので、識別には `identity.oid` / `identity.tid` を使い、`claims` を使わない（ゲートにも周知する）。`expected_tenant_id` が空なら `:tenant_mismatch`（fail-closed）。`Invalid` は StandardError で、メッセージに reason のみを含む
