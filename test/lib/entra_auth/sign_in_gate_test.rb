@@ -6,9 +6,12 @@ class EntraAuthSignInGateTest < ActiveSupport::TestCase
   Gate = EntraAuth::SignInGate
   TID = "11111111-2222-3333-4444-555555555555".freeze
   OID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".freeze
-  GENERIC = "サインインに失敗しました。しばらくしてからもう一度お試しください。".freeze
   FakeUser = Struct.new(:role, :saved)
 
+  # 固定の汎用文言は、現在のロケールのキー（3.4 で定義）から解決される
+  def generic_message
+    I18n.t("entra_authentication.failures.generic")
+  end
 
   def identity
     @identity ||= EntraAuth::VerifiedIdentity.from_auth_hash(
@@ -67,7 +70,7 @@ class EntraAuthSignInGateTest < ActiveSupport::TestCase
     decision = Gate.evaluate(identity, user)
     assert decision.rejected?
     assert_equal :no_role, decision.reason
-    assert_equal GENERIC, decision.message
+    assert_equal generic_message, decision.message
   end
 
   test "gates run in registration order and all accepting accepts" do
@@ -96,7 +99,7 @@ class EntraAuthSignInGateTest < ActiveSupport::TestCase
 
     assert decision.rejected?
     assert_equal :gate_error, decision.reason
-    assert_equal GENERIC, decision.message
+    assert_equal generic_message, decision.message
     assert_includes log, "RuntimeError"
     assert_includes log, "gate_error"
     assert_not_includes log, "SENTINEL-MSG"
@@ -119,7 +122,7 @@ class EntraAuthSignInGateTest < ActiveSupport::TestCase
     log = capture_log { decision = Gate.evaluate(identity, user) }
     assert decision.rejected?
     assert_equal :gate_error, decision.reason
-    assert_equal GENERIC, decision.message
+    assert_equal generic_message, decision.message
     assert_includes log, "gate_error"
   end
 

@@ -1,0 +1,18 @@
+# Fixed end-user messages for Entra ID authentication (English).
+# No internal details (settings, exception content, claims) and no interpolation.
+en:
+  devise:
+    failure:
+      # Idle expiry
+      timeout: "Your session expired because of inactivity. Please sign in again."
+      # Maximum session duration reached
+      absolute_timeout: "Your session expired because the maximum session duration was reached. Please sign in again."
+      unauthenticated: "Please sign in to continue."
+  entra_authentication:
+    failures:
+      cancelled: "Sign-in was cancelled. You can try again."
+      failed: "Sign-in failed. Please try again later or contact the administrator."
+      # English counterpart of the SignInGate default message
+      generic: "Sign-in failed. Please try again later."
+      # Generic fallback when a sign-in gate rejects without a usable message
+      rejected: "This account cannot sign in. Please contact the administrator."
