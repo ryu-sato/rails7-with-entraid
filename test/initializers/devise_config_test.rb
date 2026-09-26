@@ -145,12 +145,14 @@ class DeviseConfigTest < ActiveSupport::TestCase
     end
   end
 
-  test "the app boots with no ENTRA_* set (test and production)" do
+  test "the app boots with no ENTRA_* set (test and production asset build)" do
     out, err, status = boot_subprocess("puts :booted")
     assert_predicate status, :success?, err
     assert_includes out, "booted"
 
-    out, err, status = boot_subprocess("puts :booted", rails_env: "production")
+    # Production validates ENTRA_* at boot (3.2) except for the asset build path.
+    out, err, status = boot_subprocess("puts :booted", rails_env: "production",
+                                                       entra_env: { "SECRET_KEY_BASE_DUMMY" => "1" })
     assert_predicate status, :success?, err
     assert_includes out, "booted"
   end
