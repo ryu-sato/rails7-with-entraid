@@ -124,6 +124,7 @@ app/
 config/
 ├── initializers/devise.rb            # Devise 設定と OmniAuth プロバイダ登録（strategy_class）
 ├── initializers/entra_auth.rb        # require "entra_auth"、Config 検証、AbsoluteTimeout 導入
+├── initializers/filter_parameter_logging.rb  # (変更) 認可コード・state をフィルタ対象に追加
 ├── application.rb                    # (変更) autoload_lib の ignore に entra_auth を追加
 ├── routes.rb                         # (変更) devise_for、login / logout / signed_out、root
 └── locales/entra_authentication.{ja,en}.yml   # 失効・失敗の文言（devise.failure.* を含む）
@@ -433,8 +434,8 @@ end
 | Requirements | 6.2, 6.4, 6.5 |
 
 **Responsibilities & Constraints**
-- `Warden::Manager.after_set_user` に登録する。認証イベント（`:authentication`）で `warden.session(scope)["login_at"]` に現在時刻（整数）を設定する（6.5）
-- それ以外のイベント（`:fetch`）で `login_at` が欠けている、または `now - login_at > absolute_timeout` なら、`warden.logout(scope)` して `throw :warden, scope:, message: :absolute_timeout` する（6.2, 6.3）
+- `Warden::Manager.after_set_user` に登録する。認証イベント（`:authentication`）と、テスト用ログインヘルパーが発生させる `:set_user` で `warden.session(scope)["login_at"]` に現在時刻（整数）を設定する（6.5）
+- 既存セッションの復元イベント（`:fetch`）でのみ、`login_at` が欠けている、または `now - login_at > absolute_timeout` なら、`warden.logout(scope)` して `throw :warden, scope:, message: :absolute_timeout` する（6.2, 6.3）
 - 失効時の文言は `devise.failure.absolute_timeout`（6.4）
 
 **Contracts**: State [x]
