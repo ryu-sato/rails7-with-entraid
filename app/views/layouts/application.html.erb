@@ -23,6 +23,10 @@
         <p class="flash flash-<%= type %>" role="<%= type == :alert ? 'alert' : 'status' %>"><%= flash[type] %></p>
       <% end %>
     <% end %>
+    <% if user_signed_in? %>
+      <%# Turbo off: sign-out redirects off-site (Entra ID). %>
+      <%= button_to t("layouts.sign_out"), destroy_user_session_path, method: :delete, form: { data: { turbo: false } } %>
+    <% end %>
     <%= yield %>
   </body>
 </html>
