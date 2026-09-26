@@ -2,22 +2,21 @@
 
 ## Architecture
 
-Rails 8.1 のモノリス（Omakase 構成）。サーバーサイドレンダリングの HTML を基本とし、
+Rails 7.2 のモノリス。サーバーサイドレンダリングの HTML を基本とし、
 Hotwire で動的な振る舞いを足す。JS のビルドステップは持たない（importmap）。
-キャッシュ・ジョブ・WebSocket はすべて DB バックエンドの Solid 系で賄い、追加ミドルウェアを前提にしない。
+アセット配信は Sprockets。キャッシュ・ジョブ・WebSocket は Rails 7.2 標準の実装（メモリ / async / async アダプタ）を使う。
 
 ## Core Technologies
 
 - **Language**: Ruby 4.0（`.ruby-version`）
-- **Framework**: Ruby on Rails 8.1（`config.load_defaults 8.1`）
-- **Web Server**: Puma + Thruster（本番の HTTP キャッシュ / 圧縮）
-- **Database**: SQLite 3（`config/database.yml`。本番は primary / cache / queue / cable の 4 DB 構成）
+- **Framework**: Ruby on Rails 7.2（`config.load_defaults 7.2`）
+- **Web Server**: Puma
+- **Database**: SQLite 3（`config/database.yml`。開発・テストは `storage/*.sqlite3`）
 
 ## Key Libraries
 
 - **Hotwire**: turbo-rails / stimulus-rails。新しい JS は Stimulus コントローラとして書く
-- **importmap-rails + propshaft**: Node / バンドラ不要のアセット配信。npm パッケージは `bin/importmap pin` で追加
-- **Solid Cache / Solid Queue / Solid Cable**: `Rails.cache` / Active Job / Action Cable の標準実装
+- **importmap-rails + sprockets-rails**: Node / バンドラ不要のアセット配信。npm パッケージは `bin/importmap pin` で追加
 - **jbuilder**: JSON レスポンスが必要な場合のビュー
 - **認証（未導入）**: Entra ID 連携は OIDC で行う想定。gem 選定は spec の設計フェーズで決める
 
@@ -27,7 +26,7 @@ Hotwire で動的な振る舞いを足す。JS のビルドステップは持た
 - `rubocop-rails-omakase` のスタイルに従う（`.rubocop.yml` で継承、独自ルールは現状なし）
 
 ### Security
-- Brakeman（静的解析）、bundler-audit（gem 脆弱性）、`importmap audit`（JS 依存）を CI で実行
+- Brakeman（静的解析）を CI で実行。`bundler-audit` は Gemfile 未導入のため必要になったら追加する
 - 秘密情報は Rails credentials（`config/credentials.yml.enc`）で管理し、平文でコミットしない
 
 ### Testing
@@ -37,7 +36,7 @@ Hotwire で動的な振る舞いを足す。JS のビルドステップは持た
 ## Development Environment
 
 ### Required Tools
-- Dev Container（`.devcontainer/`）: Ruby 4.0 イメージ + PostgreSQL サービス
+- Dev Container（`.devcontainer/`）: Ruby 4.0 イメージ + PostgreSQL サービス（`DATABASE_URL` が設定される。SQLite で動かす場合は `env -u DATABASE_URL bin/rails ...`）
 - Node.js は不要（importmap 構成のため）
 
 ### Common Commands
@@ -46,14 +45,14 @@ Hotwire で動的な振る舞いを足す。JS のビルドステップは持た
 # Dev:    bin/dev
 # Test:   bin/rails test
 # Lint:   bin/rubocop
-# CI一式: bin/ci   (setup → rubocop → 各種 audit → brakeman → test → seeds)
 ```
 
 ## Key Technical Decisions
 
-- **Omakase を崩さない**: Rails 8 のデフォルト（importmap, Solid 系, Kamal）を採用し、代替スタックは明確な理由がある場合のみ導入する
-- **デプロイは Kamal**: Docker イメージを Kamal でデプロイし、`storage/` を永続ボリュームにマウント（SQLite 前提の構成）
-- **DB は未確定**: アプリは SQLite で生成されているが、Dev Container は PostgreSQL と `DATABASE_URL` を提供している。どちらに寄せるかは要決定（Gemfile に `pg` は未追加）
+- **Rails 7.2 を採用**: 当初 Rails 8 で初期化したが、Rails 7 系で作り直した。Rails 8 固有機能（Solid 系、Propshaft、Kamal、認証ジェネレータ等）は前提にしない
+- **Ruby 4.0 との組み合わせ**: Rails 7.2 の公式サポート Ruby は 3.3 までのため、非互換が出た場合は Ruby / gem 側で対処する
+- **デプロイ方式は未確定**: 生成された `Dockerfile` はあるが、デプロイツールは未選定
+- **DB は未確定**: アプリは SQLite で生成されているが、Dev Container は PostgreSQL と `DATABASE_URL` を提供している（Gemfile に `pg` は未追加）。どちらに寄せるかは要決定
 
 ---
 _Document standards and patterns, not every dependency_
