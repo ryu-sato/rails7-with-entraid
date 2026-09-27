@@ -60,5 +60,5 @@ Entra ID 管理のグループによる Web アプリの認可制御を実現す
   - ID token の保存。RP-Initiated Logout の `id_token_hint` に使うため、authentication が保持する
 
 ## Specs (dependency order)
-- [ ] entra-authentication -- Devise + omniauth_openid_connect による Entra ID OIDC ログイン、oid/tid によるユーザー特定、セッション寿命管理、RP-Initiated Logout。Dependencies: none
-- [ ] entra-authorization -- roles / groups クレームからのロール配列生成・保存、ロール未保持・overage 時のログイン拒否、cancancan による権限定義。Dependencies: entra-authentication
+- [x] entra-authentication -- Devise + omniauth_openid_connect による Entra ID OIDC ログイン、oid/tid によるユーザー特定、セッション寿命管理、RP-Initiated Logout。Dependencies: none
+- [x] entra-authorization -- roles / groups クレームからのロール配列生成・保存、ロール未保持・overage 時のログイン拒否、cancancan による権限定義。Dependencies: entra-authentication
