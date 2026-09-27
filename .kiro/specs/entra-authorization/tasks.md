@@ -49,7 +49,7 @@
   - _Boundary: RolesClaimResolver_
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
-- [ ] 2.3 (P) groups クレーム方式のロール抽出と overage 検知
+- [x] 2.3 (P) groups クレーム方式のロール抽出と overage 検知
   - グループ Object ID とロール名の対応表から、groups に含まれるグループに対応する候補ロール名を返す。対応表にないグループは無視する。GUID は大文字小文字を区別せず照合する
   - overage を groups の有無より先に判定し、外部 API を呼ばずに「overage による拒否」を返す
   - groups も overage もなければ空の候補を返す。roles クレームは参照しない
