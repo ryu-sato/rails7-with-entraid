@@ -85,6 +85,15 @@
   - _Depends: 2.1_
   - _Requirements: 6.2, 6.4, 6.5_
 
+- [ ] 2.8 strategy が、接続設定が不完全なとき、外部通信の前に失敗させる（5.4 の検証で見つかった不具合の修正。advisor の委任の範囲）
+  - 発行元（issuer）、クライアント識別子、クライアントシークレット、リダイレクト URI のいずれかが空のとき、認証の開始（request phase）とコールバック（callback phase）の両方で、gem の探索処理（発行元なしの WebFinger など、無関係なホストへの通信）に入る前に、失敗として通知する（失敗のキーは設定不備を示す固定のキー）。例外は外へ出さない
+  - 利用者向けの表示は既存の固定の失敗文言で、内部情報を含めない。ログには失敗のキーとクラス名のみを出す
+  - 5.4 のテストが記録している既知の不具合の注記と、WebFinger のスタブを外し、「外部への通信が一切ない（`assert_not_requested :any`）」の確認に締め直す
+  - 完了条件: 発行元が未設定の状態で認証を開始しても、外部への通信が一切発生せず、ログイン画面へ戻り固定の失敗文言が表示される。設定が完全なときの動作は変わらない。全テストが通る
+  - _Boundary: EntraAuth::Strategy_
+  - _Depends: 2.3, 5.4_
+  - _Requirements: 8.3, 4.2_
+
 - [ ] 3. Core: アプリ側の設定、利用者モデル、文言
 - [x] 3.1 Devise と OmniAuth プロバイダを設定する
   - 認証はサインイン用のモジュールのみを有効にし、パスワード、Remember me、その他のモジュールは使わない
@@ -173,7 +182,7 @@
   - 完了条件: 各シナリオが通る
   - _Depends: 4.3_
   - _Requirements: 7.1, 7.2, 7.3, 7.5, 7.6, 7.7_
-- [ ] 5.4 認証必須化とサインイン開始の制限を結合テストで確認する
+- [x] 5.4 認証必須化とサインイン開始の制限を結合テストで確認する
   - 既定の保護、公開ページの明示除外、サインイン前の入口への到達を確認する。サインイン開始が GET で受け付けられず、認証トークンなしの POST が拒否されることを確認する
   - 設定不備のときに、ログイン画面が 503 の汎用画面になり、ログには項目名のみが出ることを確認する
   - 完了条件: 各シナリオが通る
@@ -220,3 +229,4 @@
 - サインアウトの結合テスト（5.3）: `test/integration/sign_out_flow_test.rb`。Entra の URL は Location を見るだけで辿らない。無操作で失効した後の DELETE /logout は、Devise の FailureApp が `/login` へ 302 する（Entra には行かない。アプリのセッションは失効済みで 500 にならない。Entra の SSO セッションは終了しない縮退を許容する。5.6 の手順書に書く）。CSRF のトークンは、DELETE では `<meta name="csrf-token">` のものを使う（`/login` の `button_to` のフォーム用トークンは 422）。**発見（セキュリティ）**: ステートレスな Cookie セッションのため、サインアウト前に控えた Cookie が、サインアウト後も有効（Devise に `database_authenticatable` がなく `authenticatable_salt` が nil）。無操作の期限は再利用のたびに更新され、絶対時間（8 時間）でのみ切れる。特性テスト「cookie captured before sign-out ... replay outcome」が現状を固定している。advisor の判断（ユーザーの委任）で、タスク 4.4 で堅牢化する（下記）
 - **設計変更（advisor 承認、ユーザーの委任）**: 5.3 の検証でステートレスな Cookie の再利用が判明し、`users.session_token`（`authenticatable_salt`）をサインアウトで再発行してサーバー側で無効にする（タスク 4.4、`design.md` / `research.md` を更新済み）。**`entra-authorization` への Revalidation Trigger**: `users` テーブルに `session_token` 列が増え、`User` が `authenticatable_salt` を上書きし、サインアウトの動作（同じ利用者の全ブラウザのセッション終了）が変わる。authorization 側の `users` へのマイグレーション・モデル・テストと整合を再確認すること
 - セッションのサーバー側無効化（4.4）: `users.session_token`（`has_secure_token`、NULL 可の文字列）を `User#authenticatable_salt` にし、`SessionsController#destroy` は「ヒント読み取り → `rotate_session_token!`（認証済みの間）→ `sign_out`（`ensure` で必ず実行）→ 303」。再発行の失敗でもサインアウトは行い、ログはクラス名のみ。サインイン時は再発行しない（同じ利用者の全ブラウザが 1 つの値を共有し、どこでサインアウトしても全て終了する。意図した挙動）。`from_identity` が nil の既存行にも値を発行する。マスク: `session_token` は既存の `:token` フィルタで `inspect` / ログ / パラメータから伏せられる（テストで確認）。残余リスク: 期限切れでセッションが既にない状態のサインアウトでは再発行されない（Cookie は無操作 / 絶対時間で有界。テストのコメントに記録）。5.3 の特性テストは「再利用するとログイン画面へ転送」に反転済み。下流（`entra-authorization`）は `users` へのマイグレーション・モデルとの整合を再確認すること
+- 認証必須化とサインイン開始の結合テスト（5.4）: `test/integration/access_control_flow_test.rb`。**不具合の発見**: 発行元（テナント）が未設定のまま POST /users/auth/openid_connect すると、gem が WebFinger 検出に落ち、無関係なホスト `https` へ GET を試みる（Entra ID ではなく、秘密情報は送られない。テストの WebMock では `Exception` 派生の `NetConnectNotAllowedError` が Strategy の rescue をすり抜ける）。タスク 2.8 で、外部通信の前に設定不備として失敗させる（5.4 のテストも締め直す）
