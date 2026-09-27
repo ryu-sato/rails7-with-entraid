@@ -1,0 +1,12 @@
+en:
+  authorization:
+    # Shown on the sign-in screen when sign-in is refused because of roles.
+    # Fixed text only: never interpolate claims, group IDs or role names.
+    rejections:
+      no_roles: "You could not be signed in because no access has been assigned to your account for this application. Please contact your administrator."
+      groups_overage: "You could not be signed in because you belong to too many groups for your access to be determined. Please contact your administrator."
+    # Shown when a signed-in user attempts something they are not permitted to do.
+    forbidden:
+      title: "You do not have permission to do this"
+      body: "Your account is not allowed to access this page or perform this action. If you need access, please contact your administrator."
+      back: "Back to the top page"

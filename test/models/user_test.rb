@@ -188,7 +188,7 @@ class UserTest < ActiveSupport::TestCase
   end
 
   test "attributes carry no OIDC credential; the only token-like column is the masked session_token" do
-    assert_equal %w[created_at email id name oid session_token tid updated_at], User.column_names.sort
+    assert_equal %w[created_at email id name oid roles session_token tid updated_at], User.column_names.sort
     user = User.from_identity(identity(access_token: "SENTINEL-TOKEN", id_token: "SENTINEL-ID"))
     assert_no_match(/SENTINEL/i, user.inspect)
     assert_no_match(/SENTINEL|access_token|id_token/i, user.attributes.keys.join)
