@@ -242,26 +242,97 @@ class SignOutFlowTest < ActionDispatch::IntegrationTest
     assert_equal EntraAuth::LogoutUrl.build(logout_hint: nil), response.location
   end
 
-  # --- security characterization ---
+  # --- server-side invalidation (task 4.4) ---
 
-  test "cookie captured before sign-out - replay outcome (characterization)" do
+  def user_record = User.find_by!(tid: EntraAuth::Config.tenant_id, oid: @oid)
+
+  # Cookie replay: session_token is rotated at sign-out, so a copy of the
+  # pre-sign-out cookie can no longer be restored by Devise.
+  test "cookie captured before sign-out is rejected when replayed after sign-out" do
     real_sign_in(login_hint: HINT)
     page_token
     captured = cookies[session_cookie_name]
     assert captured.present?
+    token_before = user_record.session_token
 
     delete "/logout", params: { authenticity_token: meta_token(response.body) }
     assert_response :see_other
     assert_logged_out_at_login
+    assert_not_equal token_before, user_record.session_token
 
     cookies[session_cookie_name] = captured
     get "/"
-    # Known limitation of stateless cookie sessions; bounded by idle/absolute
-    # timeouts. The Cookie store keeps no server-side state and Devise runs
-    # without database_authenticatable (no authenticatable_salt), so a copy of
-    # the pre-sign-out cookie is still accepted. If server-side invalidation is
-    # added later, this assertion must flip consciously.
-    replay_accepted = response.successful? && response.body.include?(MARKER)
-    assert replay_accepted, "replay outcome changed: status=#{response.status} location=#{response.location}"
+    assert_redirected_to new_user_session_url
+    assert_not_includes response.body.to_s, MARKER
+  end
+
+  test "signing out in browser A ends browser B's session of the same user" do
+    real_sign_in(login_hint: HINT)
+    page_token
+    cookie_a = cookies[session_cookie_name]
+
+    reset! # browser B: independent cookie jar, same user (same oid)
+    real_sign_in
+    page_token
+    cookie_b = cookies[session_cookie_name]
+    assert_not_equal cookie_a, cookie_b
+
+    cookies[session_cookie_name] = cookie_a
+    get "/"
+    assert_response :success
+    delete "/logout", params: { authenticity_token: meta_token(response.body) }
+    assert_response :see_other
+
+    cookies[session_cookie_name] = cookie_b
+    get "/"
+    assert_redirected_to new_user_session_url
+    assert_not_includes response.body.to_s, MARKER
+  end
+
+  test "signing in again after sign-out works and issues a session with the new token" do
+    real_sign_in(login_hint: HINT)
+    page_token
+    old_cookie = cookies[session_cookie_name]
+    delete "/logout", params: { authenticity_token: meta_token(response.body) }
+    rotated = user_record.session_token
+
+    real_sign_in
+    page_token
+    assert_equal rotated, user_record.session_token, "sign-in must not rotate the token"
+    cookies[session_cookie_name] = old_cookie
+    get "/"
+    assert_redirected_to new_user_session_url
+  end
+
+  test "sign-out after the session expired does not rotate the token (residual risk)" do
+    # Residual risk (task 4.4): when the session already expired (idle/absolute),
+    # Devise drops it inside #destroy before authentication, so there is no
+    # current_user to rotate for. A copy of the old cookie stays bounded by the
+    # idle/absolute timeouts, which are enforced server-side on every request.
+    real_sign_in(login_hint: HINT)
+    token = page_token
+    before = user_record.session_token
+    travel_to((Devise.timeout_in + 60).seconds.from_now)
+    delete "/logout", params: { authenticity_token: token }
+    assert_response :redirect
+    assert_equal before, user_record.session_token
+  end
+
+  test "sign-out still ends the app session when rotating the token fails, logging only the class" do
+    real_sign_in(login_hint: HINT)
+    token = page_token
+    original = User.instance_method(:rotate_session_token!)
+    User.send(:define_method, :rotate_session_token!) { raise ActiveRecord::StatementInvalid, "secret-db-detail" }
+    log = nil
+    begin
+      log = capture_rails_log { delete "/logout", params: { authenticity_token: token } }
+    ensure
+      User.send(:define_method, :rotate_session_token!, original)
+    end
+    assert_response :see_other
+    assert_equal EntraAuth::LogoutUrl.build(logout_hint: HINT), response.location
+    assert_includes log, "ActiveRecord::StatementInvalid"
+    assert_not_includes log, "secret-db-detail"
+    assert_logged_out_at_login
   end
 end

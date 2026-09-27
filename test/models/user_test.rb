@@ -119,12 +119,58 @@ class UserTest < ActiveSupport::TestCase
     end
   end
 
-  test "Devise session round-trip finds the user by primary key only" do
+  # Task 4.4: the session-token is Devise's authenticatable_salt, so a session
+  # cookie restores only while the token is unchanged.
+  test "authenticatable_salt is the session_token and the Devise session round-trip requires it" do
     user = User.from_identity(identity)
-    assert_nil user.authenticatable_salt
+    assert user.session_token.present?
+    assert_equal user.session_token, user.authenticatable_salt
     key = User.serialize_into_session(user)
+    assert_equal [ [ user.id ], user.session_token ], key
     assert_equal user, User.serialize_from_session(*key)
-    assert_nil User.serialize_from_session(user.id + 1000, nil)
+    assert_nil User.serialize_from_session(user.id + 1000, user.session_token)
+    assert_nil User.serialize_from_session(user.id, "wrong-token")
+    assert_nil User.serialize_from_session(user.id, nil)
+  end
+
+  test "from_identity keeps the same session_token across sign-ins (shared by all browsers)" do
+    first = User.from_identity(identity)
+    assert_equal first.session_token, User.from_identity(identity).session_token
+  end
+
+  test "from_identity fills in a missing session_token of an existing (legacy) row" do
+    user = User.from_identity(identity)
+    user.update_column(:session_token, nil)
+    assert_nil User.find(user.id).authenticatable_salt
+    again = User.from_identity(identity)
+    assert again.session_token.present?
+    assert_equal again.session_token, User.find(user.id).session_token, "must be persisted"
+  end
+
+  test "each user gets a distinct token" do
+    a = User.from_identity(identity)
+    b = User.from_identity(identity(oid: OTHER_OID))
+    assert_not_equal a.session_token, b.session_token
+  end
+
+  test "rotate_session_token! persists a new token and invalidates the old session key" do
+    user = User.from_identity(identity)
+    old_key = User.serialize_into_session(user)
+    old_token = user.session_token
+    user.rotate_session_token!
+    assert_not_equal old_token, user.session_token
+    assert_equal user.session_token, User.find(user.id).session_token
+    assert_nil User.serialize_from_session(*old_key)
+    assert_equal user, User.serialize_from_session(*User.serialize_into_session(user))
+  end
+
+  test "session_token is masked in inspect and in parameter filtering" do
+    user = User.from_identity(identity)
+    assert_not_includes user.inspect, user.session_token
+    assert_includes user.inspect, "session_token: [FILTERED]"
+    filtered = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters)
+                                             .filter("session_token" => "secret-value")
+    assert_equal "[FILTERED]", filtered["session_token"]
   end
 
   test "active_for_authentication defaults are untouched" do
@@ -141,10 +187,11 @@ class UserTest < ActiveSupport::TestCase
     assert user.timedout?(Devise.timeout_in.ago - 5.seconds)
   end
 
-  test "attributes and inspect carry nothing token-like" do
-    assert_equal %w[created_at email id name oid tid updated_at], User.column_names.sort
+  test "attributes carry no OIDC credential; the only token-like column is the masked session_token" do
+    assert_equal %w[created_at email id name oid session_token tid updated_at], User.column_names.sort
     user = User.from_identity(identity(access_token: "SENTINEL-TOKEN", id_token: "SENTINEL-ID"))
-    assert_no_match(/token|SENTINEL/i, user.inspect)
-    assert_no_match(/token|SENTINEL/i, user.attributes.keys.join)
+    assert_no_match(/SENTINEL/i, user.inspect)
+    assert_no_match(/SENTINEL|access_token|id_token/i, user.attributes.keys.join)
+    assert_not_includes user.inspect, user.session_token
   end
 end
