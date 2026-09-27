@@ -92,7 +92,7 @@
   - _Requirements: 2.1, 2.2, 2.5, 5.1, 5.4, 6.1, 6.3, 6.4, 7.1, 7.3, 7.5, 8.4, 12.1, 12.2_
 
 - [ ] 4. Integration: ログイン処理への接続
-- [ ] 4.1 サインイン可否ゲートへのアダプタ作成と登録
+- [x] 4.1 サインイン可否ゲートへのアダプタ作成と登録
   - authentication のサインイン可否ゲートに登録する薄いアダプタを作る。ロール同期の結果を受理・拒否の判定に変換し、拒否では理由に対応する固定文言を付ける
   - アプリの初期化処理でゲートに登録する。ゲートの評価時に初めてロール同期を参照する（リロード対象の定数を起動時に参照しない）。authentication のコードは変更しない
   - テストはゲートが各テストの前後でリセットされるため、必要なテストで登録し直す
@@ -129,3 +129,6 @@
 - 接続方式: callback には触れず、authentication の `EntraAuth::SignInGate.register` にアダプタを登録する（design.md 更新済み）。ゲートのテストは各テストの前後で `reset!` されるため、アダプタを使うテストは setup で再登録する
 - config gem の `Config` はトップレベルの定数で、authentication の `EntraAuth::Config` は名前空間内のため衝突しない（1.1 で全テスト通過を確認）
 - 1.3 の影響: authentication の `test/models/user_test.rb` と `test/db/users_table_test.rb` は `users` の列を完全一致で検証しているため、`roles` の追加に合わせて期待値に `roles` を加えた（資格情報らしい列を拒む意図は維持）。以後、コミット前に必ず全テストの結果を確認する（1.3・1.4 のコミットは全テスト未確認で行い、この修正で解消した）
+- 4.1: 接続は `config/initializers/authorization.rb` の `after_initialize` で `EntraAuth::SignInGate.register`（呼び出し時に `Authorization::SignInGateAdapter` を参照する lambda。リロード対応）。authentication のコードは未変更。テストは `test/support/authorization_gate.rb`（起動時に登録されたゲートを support 読み込み時に控えておき、`register_authorization_gate` で戻す。`with_role_source` で方式を一時的に切り替える）、`oidc_sign_in_flow.rb`（実際の Strategy を WebMock のスタブに通す。ID token に `roles` / `groups` / `_claim_names` を入れられる。setup でゲートを登録）、`authorization_probe.rb`（テスト専用のコントローラとルート。`reload_routes!` で片付ける）を使う
+- テストの落とし穴: ヘルパーにキーワード引数（`with:` / `map:` など）があると、`resolve("groups" => [...])` のような波括弧なしの文字列キー Hash がキーワード引数として解釈される。第 1 引数は `{ ... }` で囲むか、追加の引数を位置引数にする
+- 結合テストでのサインアウト: `allow_forgery_protection` が有効な間、トークンなしの `DELETE /logout` は拒否される。セッションを終わらせるだけなら Devise の `sign_out :user` を使う
