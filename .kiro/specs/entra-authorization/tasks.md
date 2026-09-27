@@ -18,7 +18,7 @@
   - _Boundary: Role_
   - _Requirements: 1.1, 1.3, 2.3, 2.4_
 
-- [ ] 1.3 利用者テーブルへのロール配列カラム追加
+- [x] 1.3 利用者テーブルへのロール配列カラム追加
   - `users` にロール名の配列を保持する JSON カラムを、null 不可・既定は空配列で追加する（別マイグレーション）
   - `entra-authentication` の `users` 作成マイグレーションより後に実行される
   - 既存行が空配列で導入され、SQLite で読み書きできる。PostgreSQL（Dev Container）でも同じマイグレーションが通り、既定値と読み書きが動く
@@ -122,3 +122,9 @@
   - 文書が両方式の前提、制約、選択基準、反映タイミングを網羅し、設定キー名が実装と一致している
   - _Boundary: Setup guide_
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6_
+
+## Implementation Notes
+- 実行環境: authentication の記録どおり `DATABASE_URL` は到達不能な PostgreSQL を指すため、worktree のセッションでは `unset DATABASE_URL` してから `bin/rails test` / `bin/rubocop` / `bin/rails zeitwerk:check` を実行する（このセッションでは `env -u` が拒否される）。実 Entra ID への通信は行わない（テストは authentication の WebMock + `OidcProviderStub` のみ）
+- 1.3: `users.roles` は SQLite で検証済み（既定値・読み書き・NOT NULL・redo）。PostgreSQL は `pg` が Gemfile になく `DATABASE_URL` も到達不能なため未検証（DB の選定は本 spec の対象外）。JSON カラムは PostgreSQL でも標準サポートのため、DB を PostgreSQL に決めたときに同じマイグレーションでテストを実行して確認する
+- 接続方式: callback には触れず、authentication の `EntraAuth::SignInGate.register` にアダプタを登録する（design.md 更新済み）。ゲートのテストは各テストの前後で `reset!` されるため、アダプタを使うテストは setup で再登録する
+- config gem の `Config` はトップレベルの定数で、authentication の `EntraAuth::Config` は名前空間内のため衝突しない（1.1 で全テスト通過を確認）
