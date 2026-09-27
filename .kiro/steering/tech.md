@@ -26,6 +26,7 @@ Hotwire で動的な振る舞いを足す。JS のビルドステップは持た
 - `rubocop-rails-omakase` のスタイルに従う（`.rubocop.yml` で継承、独自ルールは現状なし）
 
 ### Security
+- Rails 7.2 系は 2026-08-09 にサポートが終了しており、Brakeman の EOLRails 警告は `config/brakeman.ignore` で「了承したリスク」として除外している（解消ではない。7.2.4 が最終リリースで、以降のセキュリティ修正はない）。解消には Rails 8.1 以降への更新が必要で、別 spec で判断する。Rails を更新したら除外エントリを削除する（`test/config/brakeman_ignore_test.rb` が更新を検知して失敗する）
 - Brakeman（静的解析）を CI で実行。`bundler-audit` は Gemfile 未導入のため必要になったら追加する
 - 秘密情報は Rails credentials（`config/credentials.yml.enc`）で管理し、平文でコミットしない
 
