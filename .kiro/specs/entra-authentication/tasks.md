@@ -145,6 +145,18 @@
   - _Depends: 4.1, 4.2_
   - _Requirements: 1.5, 5.1, 5.2, 5.3, 5.4, 5.5, 7.6_
 
+- [ ] 4.4 サインアウトで、そのユーザーの以前のセッションをサーバー側で無効にする（統合タスク。実装中の発見に基づく設計変更で、advisor の判断による）
+  - 利用者に、セッションの有効性を決めるランダム値（セッション用のトークン）を持たせる。列は NULL 可の文字列で、SQLite と PostgreSQL の両方で動くマイグレーションにする。ログイン時に未設定なら発行する
+  - Devise のセッション復元が、この値と一致するときだけ成功するようにする（値が変わると、以前に発行された Cookie は復元できない）
+  - サインアウト時に、認証済みの間に値を再発行してから、アプリ側のセッションを終了する（順序: ヒントの読み取り → 再発行 → サインアウト → 転送）。同じ利用者の他のブラウザのセッションも無効になる（意図した挙動として文書化する）
+  - 値は、モデルの `inspect` とログに出さない（既存のフィルタで伏せられることを確認する）
+  - 既存のテストを更新する: 3.3 の「セッションの往復」（salt が nil という前提）、5.3 の特性テスト（サインアウト前に控えた Cookie を再利用すると、ログイン画面へ転送される、に反転する）。別のブラウザ（別の Cookie）のセッションもサインアウトで終了するテストを追加する。絶対時間の実スタックのテストと、4.1 のセッションクリアのテストを再確認する
+  - 期限切れで既にセッションがない状態のサインアウトでは再発行されない（残余リスク。絶対時間で有界）ことをテストのコメントか文書に記録する
+  - 完了条件: サインアウト前に控えた Cookie を、サインアウト後に再利用しても保護されたページの内容が返らず、ログイン画面へ転送される。別のブラウザのセッションも同様に無効になる。サインアウト後の再サインインは正常に行える。全テストが通る
+  - _Boundary: User, SessionsController_
+  - _Depends: 4.3, 5.3_
+  - _Requirements: 7.1, 7.6_
+
 - [ ] 5. Validation: 結合テスト、ログの安全性、手順書
 - [x] 5.1 サインインの一連の流れを結合テストで確認する
   - 元のページへ戻ること、利用者が 1 回だけ作られること、ゲートの受理・拒否（拒否でもゲートの保存が残ること）、失敗の各経路（キャンセル、テナント不一致、オブジェクト ID の欠落）でセッションが開始されないことを確認する
@@ -206,3 +218,4 @@
 - サインインの結合テスト（5.1）: `test/integration/sign_in_flow_test.rb` は `OmniAuth.config.test_mode` を使わず、実際の Strategy を WebMock の `OidcProviderStub` に対して通す（GET /login → POST /users/auth/openid_connect（実際の認証トークン）→ Location から state / nonce → スタブの token endpoint が同じ nonce の ID token を返す → GET callback）。このやり方は 5.2 / 5.3 / 5.4 でも再利用できる。**5.5 への引き継ぎ**: (1) Rails のリクエストログ行が、IdP の `error_description`（callback の URL クエリ）をそのまま出す。`filter_parameters` に `error_description` の追加を検討する。(2) `OmniAuth.logger`（`Rails.logger` とは別）が失敗時に例外メッセージを書く（例: `Authentication failure! invalid_grant: ... :: AADSTS...`）。OmniAuth のロガーの出力先とメッセージの扱い（例: ログレベルの調整、フィルタ、または出力を抑える）を決めて確認する。(3) 4.2 のフォローアップ候補（広い rescue の扱い、サインイン成功後の例外での sign_out）
 - 失効の結合テスト（5.2）: `test/integration/session_expiry_test.rb`。境界の意味: Devise の無操作は `last_request_at <= timeout_in.ago` で失効（ちょうどの秒は失効）、AbsoluteTimeout は `now - login_at > 上限` で失効（ちょうどは有効）。無操作の失効は、リダイレクトが 2 段（試行先 `/` を経て `/login`）になる（Devise が `flash[:timedout]` 付きで試行先へ転送するため）。`travel_to` はブロックなしで使う（Rails 7.2 はネストを拒否。復元は `after_teardown`）。非 GET の保護ルートは現状ないため、`DELETE /logout` と `POST /` で確認している
 - サインアウトの結合テスト（5.3）: `test/integration/sign_out_flow_test.rb`。Entra の URL は Location を見るだけで辿らない。無操作で失効した後の DELETE /logout は、Devise の FailureApp が `/login` へ 302 する（Entra には行かない。アプリのセッションは失効済みで 500 にならない。Entra の SSO セッションは終了しない縮退を許容する。5.6 の手順書に書く）。CSRF のトークンは、DELETE では `<meta name="csrf-token">` のものを使う（`/login` の `button_to` のフォーム用トークンは 422）。**発見（セキュリティ）**: ステートレスな Cookie セッションのため、サインアウト前に控えた Cookie が、サインアウト後も有効（Devise に `database_authenticatable` がなく `authenticatable_salt` が nil）。無操作の期限は再利用のたびに更新され、絶対時間（8 時間）でのみ切れる。特性テスト「cookie captured before sign-out ... replay outcome」が現状を固定している。advisor の判断（ユーザーの委任）で、タスク 4.4 で堅牢化する（下記）
+- **設計変更（advisor 承認、ユーザーの委任）**: 5.3 の検証でステートレスな Cookie の再利用が判明し、`users.session_token`（`authenticatable_salt`）をサインアウトで再発行してサーバー側で無効にする（タスク 4.4、`design.md` / `research.md` を更新済み）。**`entra-authorization` への Revalidation Trigger**: `users` テーブルに `session_token` 列が増え、`User` が `authenticatable_salt` を上書きし、サインアウトの動作（同じ利用者の全ブラウザのセッション終了）が変わる。authorization 側の `users` へのマイグレーション・モデル・テストと整合を再確認すること

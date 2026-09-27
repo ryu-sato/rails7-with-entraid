@@ -48,6 +48,7 @@
 - `User` の識別子（`tid` / `oid`）やテーブル名の変更
 - サインイン失敗時の表示の仕組み（flash のキー、遷移先）の変更
 - セッションの仕組みの変更（Cookie セッション以外への変更、`warden.session` の使い方）
+- `users.session_token` の追加と `User#authenticatable_salt` の上書き（サインアウトでセッションをサーバー側で無効にする仕組み。`users` テーブルとモデルを拡張する下流 spec（`entra-authorization` など）は、マイグレーション・モデルとの整合を再確認する）
 - 認証必須化の既定（保護対象 / 公開ページの指定方法）の変更
 - 必要な Entra ID 側の設定（スコープ、オプションクレーム）の変更
 
@@ -485,6 +486,7 @@ end
 **Responsibilities & Constraints**
 - `devise :omniauthable, :timeoutable, omniauth_providers: [:openid_connect]`。`database_authenticatable` / `rememberable` / `recoverable` は使わない
 - `(tid, oid)` が識別子。`name` / `email` は表示用で、ログインのたびに最新へ更新する（識別には使わない）
+- **セッションのサーバー側無効化**: `session_token`（nullable string、ランダム値）を持ち、`authenticatable_salt` として返す。Devise はセッションに `[id, salt]` を保存し、復元時に salt が一致するときだけ利用者を復元するため、値を再発行すると、以前発行された全ての Cookie（他のブラウザや控えられた Cookie を含む）が復元できなくなる。値は `from_identity`（サインイン前）で、未設定なら発行する。再発行は `User#rotate_session_token!`（サインアウト時）で行う。値は外部の資格情報ではなく、`inspect` / ログでは伏せる（`filter_attributes`）
 - `User.from_identity(identity)` は、既存なら取得して表示用属性を更新し、なければ作成する。並行して作成が競合して `ActiveRecord::RecordNotUnique` になった場合は、再取得して返す
 
 **Contracts**: State [x]
@@ -547,7 +549,7 @@ end
 **Responsibilities & Constraints**
 - `ApplicationController` を継承し、`skip_before_action :authenticate_user!`（`new`, `signed_out`）で公開する。`destroy` は認証を要求しない（未サインインでも安全に完了する）
 - `new`: `Config.valid?` でなければ 503 の `unavailable` 画面を出し、項目名のみをログへ出す（8.3）。サインイン済みなら `after_sign_in_path_for` へ。それ以外は `button_to ... method: :post, data: { turbo: false }` を持つ画面（1.1, 1.3）
-- `destroy`: (1) `logout_hint = warden.session(:user)["logout_hint"]` を読み、(2) `sign_out(:user)` でアプリ側を先に終了し（7.1, 7.5）、(3) `redirect_to EntraAuth::LogoutUrl.build(logout_hint:), allow_other_host: true`（7.2, 7.3）
+- `destroy`: (1) `logout_hint = warden.session(:user)["logout_hint"]` を読み、(2) 認証済みの間に `current_user.rotate_session_token!` で `session_token` を再発行し（以前の全 Cookie を無効にする。7.1）、(3) `sign_out` でアプリ側を先に終了し（7.1, 7.5）、(4) `redirect_to EntraAuth::LogoutUrl.build(logout_hint:), allow_other_host: true`（7.2, 7.3）
 - `signed_out`: 公開のサインアウト完了画面（7.4）。ここへは `post_logout_redirect_uri` で戻る
 
 **Dependencies**
@@ -590,10 +592,11 @@ end
 | created_at / updated_at | datetime | NOT NULL | |
 
 - インデックス: `(tid, oid)` の一意インデックス（3.5）
-- パスワード・トークン系の列は持たない。SQLite / PostgreSQL の両方で動く DDL に限定する（DB 選定は本 spec の範囲外）
+- `session_token`（string、NULL 可）: セッションの有効性を決めるランダム値（`authenticatable_salt`）。サインアウトで再発行する。NULL のユーザーは、次のサインイン（`from_identity`）で発行される
+- パスワード、Access token / ID token などの外部の資格情報の列は持たない（`session_token` はアプリ内のセッション無効化用の乱数）。SQLite / PostgreSQL の両方で動く DDL に限定する（DB 選定は本 spec の範囲外）
 
 ### Session Data（Cookie）
-- `warden.user.user.key`（Devise 標準）、`warden.user.user.session` 内の `last_request_at`（Devise）、`login_at`（AbsoluteTimeout）、`logout_hint`（コールバック）。ID token・Access token は含めない（Cookie の容量制限のため）
+- `warden.user.user.key`（Devise 標準。`[id, session_token]`。`session_token` は再発行で以前の Cookie を無効にする salt）、`warden.user.user.session` 内の `last_request_at`（Devise）、`login_at`（AbsoluteTimeout）、`logout_hint`（コールバック）。ID token・Access token は含めない（Cookie の容量制限のため）
 
 ### Data Contracts & Integration
 - `SignInGate` の契約（`VerifiedIdentity` と `Decision`）が下流との唯一のデータ契約。変更は Revalidation Triggers に従う
@@ -649,7 +652,7 @@ end
 - 検証: `iss` の完全一致（単一テナントの issuer）、`aud`、署名、`exp`、`nonce`、`state`、PKCE（S256）、`tid` の二重確認（2.1〜2.3, 2.5）
 - サインイン開始は POST + 認証トークン。`allowed_request_methods` を広げない（1.3）
 - Access token は保持・利用しない。ID token は Cookie に入れない（2.6）
-- セッション: `sign_in` でセッション ID が更新される（固定化の対策）。サインアウトはセッション全体をリセットする（`sign_out_all_scopes` の既定）
+- セッション: `sign_in` でセッション ID が更新される（固定化の対策）。サインアウトはセッション全体をリセットし（`sign_out_all_scopes` の既定）、加えて `session_token` を再発行して、サインアウト前に控えられた Cookie や他のブラウザのセッションもサーバー側で無効にする（ステートレスな Cookie セッションの再利用対策。副作用として、同じ利用者の全ブラウザのセッションが終了する）。期限切れで既にセッションがない場合は再発行されない（残余リスクは絶対時間で有界）
 - オープンリダイレクト: Devise 5.0.4 以上を使う。外部への遷移は logout URL のみ（`allow_other_host: true` は `destroy` の 1 か所に限定）
 - 秘密情報: `client_secret` は環境変数または credentials。`Config#inspect` に出さない（8.2）
 
