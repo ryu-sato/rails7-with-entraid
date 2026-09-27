@@ -1,3 +1,5 @@
+require "minitest/mock" # with_entra_env / capture_rails_log use Object#stub
+
 # Shared helpers for the SessionsController tests (task 4.1).
 module SessionsTestHelpers
   ENTRA_ENV_NAMES = %w[

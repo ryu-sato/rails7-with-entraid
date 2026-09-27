@@ -156,7 +156,7 @@
   - 完了条件: 各シナリオが通り、失効後は保護ページの内容が返らず、失効の文言が表示される
   - _Depends: 4.3_
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
-- [ ] 5.3 サインアウトを結合テストで確認する
+- [x] 5.3 サインアウトを結合テストで確認する
   - アプリのセッションが終了し、ヒントあり・なしで正しい URL へ転送されること、未サインインでも安全に完了すること、サインアウト後に保護されることを確認する。GET や認証トークンなしの要求が拒否されることも確認する
   - 完了条件: 各シナリオが通る
   - _Depends: 4.3_
@@ -205,3 +205,4 @@
 - 認証必須化（4.3）: `ApplicationController` に `before_action :authenticate_user!` を無条件で追加（`allow_browser` は維持）。公開は明示的な `skip_before_action` のみ（SessionsController の new / signed_out / destroy、コールバックのコントローラ）。`/up`（ヘルスチェック）と PWA（`/service-worker`、`/manifest`）は `ActionController::Base` 継承のため対象外で公開のまま。ルートを列挙して、未認証で /login へ転送されることを確認するガードのテストがある（動的セグメントのルートは対象外。将来追加したら拡張する）。トップページ（`home#index`）は名前をエスケープして表示（nil なら `home.index.unnamed`）。レイアウトのサインアウトのボタンは `button_to` DELETE + `data-turbo="false"`（サインイン済みのみ）。文言は `config/locales/home.{ja,en}.yml`。元のページ（クエリ含む）への復帰は E2E テスト済み
 - サインインの結合テスト（5.1）: `test/integration/sign_in_flow_test.rb` は `OmniAuth.config.test_mode` を使わず、実際の Strategy を WebMock の `OidcProviderStub` に対して通す（GET /login → POST /users/auth/openid_connect（実際の認証トークン）→ Location から state / nonce → スタブの token endpoint が同じ nonce の ID token を返す → GET callback）。このやり方は 5.2 / 5.3 / 5.4 でも再利用できる。**5.5 への引き継ぎ**: (1) Rails のリクエストログ行が、IdP の `error_description`（callback の URL クエリ）をそのまま出す。`filter_parameters` に `error_description` の追加を検討する。(2) `OmniAuth.logger`（`Rails.logger` とは別）が失敗時に例外メッセージを書く（例: `Authentication failure! invalid_grant: ... :: AADSTS...`）。OmniAuth のロガーの出力先とメッセージの扱い（例: ログレベルの調整、フィルタ、または出力を抑える）を決めて確認する。(3) 4.2 のフォローアップ候補（広い rescue の扱い、サインイン成功後の例外での sign_out）
 - 失効の結合テスト（5.2）: `test/integration/session_expiry_test.rb`。境界の意味: Devise の無操作は `last_request_at <= timeout_in.ago` で失効（ちょうどの秒は失効）、AbsoluteTimeout は `now - login_at > 上限` で失効（ちょうどは有効）。無操作の失効は、リダイレクトが 2 段（試行先 `/` を経て `/login`）になる（Devise が `flash[:timedout]` 付きで試行先へ転送するため）。`travel_to` はブロックなしで使う（Rails 7.2 はネストを拒否。復元は `after_teardown`）。非 GET の保護ルートは現状ないため、`DELETE /logout` と `POST /` で確認している
+- サインアウトの結合テスト（5.3）: `test/integration/sign_out_flow_test.rb`。Entra の URL は Location を見るだけで辿らない。無操作で失効した後の DELETE /logout は、Devise の FailureApp が `/login` へ 302 する（Entra には行かない。アプリのセッションは失効済みで 500 にならない。Entra の SSO セッションは終了しない縮退を許容する。5.6 の手順書に書く）。CSRF のトークンは、DELETE では `<meta name="csrf-token">` のものを使う（`/login` の `button_to` のフォーム用トークンは 422）。**発見（セキュリティ）**: ステートレスな Cookie セッションのため、サインアウト前に控えた Cookie が、サインアウト後も有効（Devise に `database_authenticatable` がなく `authenticatable_salt` が nil）。無操作の期限は再利用のたびに更新され、絶対時間（8 時間）でのみ切れる。特性テスト「cookie captured before sign-out ... replay outcome」が現状を固定している。advisor の判断（ユーザーの委任）で、タスク 4.4 で堅牢化する（下記）
