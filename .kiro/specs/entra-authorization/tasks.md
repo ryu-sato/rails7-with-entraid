@@ -134,3 +134,4 @@
 - 結合テストでのサインアウト: `allow_forgery_protection` が有効な間、トークンなしの `DELETE /logout` は拒否される。セッションを終わらせるだけなら Devise の `sign_out :user` を使う
 - 最終検証（`/kiro-validate-impl`）: authentication の最新（`session_token` 追加を含む）へ `feat/entra-authorization` を rebase して統合した。競合は `db/schema.rb` と、`users` の列を完全一致で検証する 2 つのテスト（`roles` と `session_token` の両方を期待値に入れた）。`db:drop db:create db:migrate` で作り直したスキーマが手で解決した `schema.rb` と一致することを確認した
 - 実 Entra ID テナントでの動作確認は行っていない（実通信は禁止。テストは WebMock + `OidcProviderStub` のみ）。手順書 9 章のチェックリストで、人がテナントで確認する
+- authentication の最新（ログ衛生の修正・手順書・As-built Notes）へ再度 rebase した。競合なし。authentication の `log_hygiene_test` は、ログを出してよいファイルを完全一致の許可リストで検証しているため、本 spec のログ出力元 3 ファイル（`role_sync.rb`、`role_source.rb`、`authorization_handling.rb`）を許可リストに追加した。これらのログは固定文と理由・利用者 ID・アクションだけで、内容は本 spec のテストが検証している。今後ログを出すファイルを増やすときは、この許可リストの更新が必要

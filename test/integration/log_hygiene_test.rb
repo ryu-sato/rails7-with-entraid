@@ -332,9 +332,15 @@ class LogHygieneTest < ActionDispatch::IntegrationTest
     end
     assert_empty debug_calls
     loggers = files.select { |f| File.readlines(f).grep_v(/^\s*#/).join.match?(/\blogger\b|Rails\.error/) }.map { |f| f.delete_prefix("#{Rails.root}/") }
+    # entra-authorization's log calls write fixed text plus a reason / user id / action
+    # only, never claims, group IDs or role names (role_sync_test, role_login_refusal_test,
+    # authorization_handling_test, role_source_test check the contents).
     assert_equal %w[
+      app/controllers/concerns/authorization_handling.rb
       app/controllers/sessions_controller.rb
       app/controllers/users/omniauth_callbacks_controller.rb
+      app/models/authorization/role_source.rb
+      app/models/authorization/role_sync.rb
       lib/entra_auth/sign_in_gate.rb
     ].sort, loggers.sort
   end
