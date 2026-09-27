@@ -120,6 +120,18 @@
 - **Rationale**: ソースに値の指定がないため、一般的な業務アプリの目安を置く。ロール変更の反映遅延の上限は絶対時間で決まる。運用者が調整できる（要件 6.6）
 - **Follow-up**: 運用要件が固まったら値を見直す
 
+### Decision: サインアウトでセッションをサーバー側で無効にする（実装フェーズで追加）
+- **Context**: タスク 5.3 の検証で、サインアウト前に控えた Cookie がサインアウト後も有効と判明した。ステートレスな Cookie セッションで、Devise に `database_authenticatable` がなく `authenticatable_salt` が nil のため、何も無効にならない。無操作の期限は再利用のたびに更新され、絶対時間（8 時間）でのみ切れる。要件 7.1（アプリのセッションを直ちに終了させる）と、共用端末での再利用防止という目的に照らして不十分
+- **Alternatives Considered**:
+  1. 許容する（絶対時間で有界と文書化）— 7.1 の解釈を弱めるため不採用
+  2. サーバー側のセッションストア（ActiveRecord / Redis）— 依存と運用が増える。steering は外部ミドルウェアなしの方針
+  3. `users.session_token` を `authenticatable_salt` にし、サインアウトで再発行 — Devise 標準の仕組み。列 1 つで済む
+  4. 絶対時間の短縮 — 根本の解決にならない
+- **Selected Approach**: 3。advisor の判断（ユーザーの委任）で採用
+- **Rationale**: 依存を増やさず、Devise の標準の仕組みで、控えられた Cookie と他のブラウザのセッションをまとめて無効にできる
+- **Trade-offs**: 同じ利用者の全ブラウザのセッションが終了する（意図した挙動）。`users` に列が増える（下流 spec への Revalidation Trigger）。期限切れで既にセッションがない状態でのサインアウトでは再発行されない
+- **Follow-up**: タスク 4.4 で実装し、3.3 のセッション往復テストと 5.3 の特性テストを更新する
+
 ## Risks & Mitigations
 - omniauth_openid_connect のリリースが 2024-07 で止まっており、`ostruct ~> 0.6.3` に依存する — Gemfile で `~> 0.8.0` に固定し、`bundle outdated` と上流の issue を監視する
 - strategy の継承が gem の内部に依存する — 上書きを `request_phase` / `callback_phase` の rescue に限定し、例外注入のテストで固定する。gem 更新時は必ず再実行する
