@@ -6,3 +6,17 @@
 Rails.application.config.filter_parameters += [
   :passw, :email, :secret, :token, :_key, :crypt, :salt, :certificate, :otp, :ssn
 ]
+
+# OAuth / OpenID Connect values. code and state are matched exactly (anchored)
+# so that unrelated parameters such as zipcode or estate are not masked.
+# id_token / access_token / client_secret are already covered by :token and
+# :secret above.
+Rails.application.config.filter_parameters += [
+  /\Acode\z/, /\Astate\z/, /\Anonce\z/, :login_hint
+]
+
+# IdP error callback parameters: error_description / error_uri carry free text
+# from the IdP (e.g. AADSTS messages) and appear in the request log line.
+Rails.application.config.filter_parameters += [
+  /\Aerror_description\z/, /\Aerror_uri\z/
+]

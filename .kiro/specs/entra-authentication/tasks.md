@@ -1,0 +1,235 @@
+# Implementation Plan
+
+- [x] 1. Foundation: 依存関係、スキーマ、ライブラリ読み込み、テスト基盤
+- [x] 1.1 認証に必要な依存関係を追加し、Ruby 4.0 / Rails 7.2 で解決・起動できることを確認する
+  - セッション管理、外部 OIDC 連携、サインイン開始の CSRF 保護に必要な gem を追加する。OIDC 連携の gem はバージョンを固定する（最終リリースが古く、依存の競合リスクがあるため）。セッション管理の gem は、オープンリダイレクトの修正を含む 5.0.4 以上を下限にする
+  - テスト用に、外部 HTTP をスタブできる gem を追加する
+  - パスワード認証や Remember me に関わる gem・設定は追加しない
+  - 完了条件: `bundle install` が成功し、アプリが起動して既存のテストが通る
+  - _Requirements: 1.3_
+- [x] 1.2 利用者テーブルを作成する
+  - Entra ID のテナント ID とオブジェクト ID を必須にし、表示用の名前とメールアドレスは任意にする
+  - テナント ID とオブジェクト ID の組に一意インデックスを付ける（メールアドレスには一意制約を付けない）
+  - SQLite と PostgreSQL の両方で動く定義にする
+  - 完了条件: マイグレーションが適用・ロールバックでき、同じ組の重複挿入がデータベースで拒否される
+  - _Requirements: 3.1, 3.4, 3.5_
+- [x] 1.3 認証ライブラリの配置と読み込みの土台を用意する
+  - 認証用の自前ライブラリ群を、自動読み込みの管理から外す（アプリ本体の設定の除外指定を、このタスクが持つ）
+  - 入口は、ライブラリ配下のファイルを名前順に一括で読み込む。後続のタスクは入口を編集せず、ファイルを追加するだけで読み込まれる
+  - 入口を初期化時に読み込む initializer の雛形を作る。後続のタスクがこの雛形に処理を追加する
+  - 完了条件: アプリ起動時に入口が読み込まれ、名前空間が参照できる。ファイルを追加しても入口の編集が不要である。開発・テスト・本番のいずれでも起動に失敗しない
+  - _Requirements: 8.1_
+- [x] 1.4 OIDC プロバイダのテスト基盤を用意する
+  - テスト用の署名鍵を用意し、指定したクレーム（発行元、宛先、有効期限、nonce、テナント ID、オブジェクト ID、`login_hint` など）で署名した ID token を作れるようにする
+  - discovery、公開鍵の取得、token 交換の各エンドポイントを、外部通信なしで再現できるようにする
+  - テスト環境に、Entra ID の接続設定の値（架空の GUID のテナント ID など）を与え、設定値が未設定でもテストが起動できるようにする
+  - サインインの結合テストで使う、OmniAuth のテストモード（モックの認証結果の設定とリセット）と、Devise のテスト用ヘルパーを、テスト共通の設定に組み込む
+  - 完了条件: 基盤を使ったサンプルテストが、正しい ID token を発行して署名検証まで通る。外部への実通信が発生しない。テストモードのモック設定が各テストの後にリセットされる
+  - _Requirements: 2.1, 2.2, 2.3_
+
+- [x] 2. Core: 認証ライブラリ（外部設定、OIDC の検証、値オブジェクト、拡張点、寿命、logout）
+- [x] 2.1 接続設定とセッション寿命の設定を読み取り、検証する部品を作る
+  - テナント ID、クライアント ID、クライアントシークレット、アプリのベース URL、無操作時間、絶対時間を、環境変数を優先し、なければ credentials から読む
+  - 無操作は 30 分、絶対は 8 時間を既定値にし、不正な値は既定値に置き換えず問題として報告する
+  - 単一テナントの GUID のみを受け入れ、`common` / `organizations` / `consumers` などの共通エンドポイントを不正として扱う
+  - 発行元、リダイレクト URI、サインアウト後の戻り先を設定から導出する
+  - 問題の報告は項目名のみとし、秘密情報を含めない（`inspect` にも出さない）
+  - 完了条件: 環境変数と credentials の優先順位、GUID 以外の拒否、時間の既定値と不正値、問題報告に値が含まれないことをユニットテストで確認できる
+  - _Requirements: 6.6, 8.1, 8.2, 8.3, 8.4_
+- [x] 2.2 OIDC 認証の strategy を用意し、正常な認証結果からクレームを取り出せることを確認する（最初の spike を含む）
+  - 既存の OIDC strategy を継承し、固定のオプション（discovery、認可コード方式、PKCE、スコープ（openid / profile / email）、クライアント認証方式）だけを設定する。state と nonce は既定の有効を維持する。発行元・クライアント・リダイレクト URI は呼び出し側が渡す（2.2 のテストと、3.1 のプロバイダ登録）
+  - spike: 認証結果のクレームのキーが文字列かシンボルか、および userinfo（Graph）への通信を避けられるかを、テスト基盤で確認して確定する。避けられない場合は標準の挙動を許容し、その結果を設計書の Open Questions に反映する
+  - 完了条件: 正しい ID token で認証結果が組み立てられ、オブジェクト ID とテナント ID が取り出せる。state・nonce・PKCE の検証値が送受信されることをテストで確認できる
+  - _Boundary: EntraAuth::Strategy_
+  - _Depends: 1.4, 2.1_
+  - _Requirements: 1.1, 2.1, 2.2, 2.3_
+- [x] 2.3 strategy の失敗を集約し、例外を外へ出さないようにする
+  - gem が `Exception` 派生で送出する検証エラーと、署名検証の例外、discovery / 公開鍵取得の失敗を捕捉して、失敗として通知する。`Exception` 全体は捕捉しない
+  - IdP のエラー応答（キャンセル）と gem 標準の失敗（state 不一致、タイムアウト等）は、そのまま通す
+  - 例外の内容（クレーム、トークン）を利用者向けの出力に含めない
+  - 完了条件: 発行元不一致、宛先不一致、期限切れ、nonce 不一致、署名不正、state 不一致、discovery 失敗、キャンセルの各ケースで、セッションが開始されず、例外が伝播せず、失敗として通知されることをテストで確認できる
+  - _Boundary: EntraAuth::Strategy_
+  - _Depends: 2.2_
+  - _Requirements: 2.4, 2.5, 4.1, 4.2_
+- [x] 2.4 (P) 検証済みの認証結果から、サインインに使う項目を取り出す値オブジェクトを作る
+  - オブジェクト ID とテナント ID を必須とし、欠けている場合は失敗にする。テナント ID が設定と異なる場合も失敗にする
+  - 名前、メールアドレス、`login_hint` は任意項目として扱い、特定には使わない。クレーム全体を、キーを文字列に正規化した読み取り専用の値として保持する
+  - アクセス用の資格情報や、ID token の生の文字列は含めない
+  - 完了条件: 必須項目の欠落、テナント不一致、メールなしでも成立すること、キーの正規化をユニットテストで確認できる
+  - _Boundary: EntraAuth::VerifiedIdentity_
+  - _Depends: 2.1, 2.2_
+  - _Requirements: 2.1, 2.5, 3.1, 3.4, 9.1_
+- [x] 2.5 後続の認可処理が登録できる、サインイン可否ゲートの拡張点を作る
+  - ゲートを 0 個以上登録でき、登録順に評価して最初の拒否で打ち切る。登録がなければ受理する
+  - 拒否には、記録用の理由と、利用者に表示してよい文言を持たせる
+  - ゲートが例外を送出した場合は、拒否として扱い、固定の失敗文言で記録する。評価自体は例外を投げない
+  - ゲートの変更の保存はゲート自身の責任とし、評価側は保存も巻き戻しもしない
+  - テストが登録を初期化できるようにし、テスト共通の設定で各テストの前後に呼ぶ（このタスクが追加する）
+  - 完了条件: 登録なし（受理）、受理、拒否、複数（最初の拒否で打ち切り）、例外（拒否扱い）をユニットテストで確認できる。テスト間で登録が持ち越されない
+  - _Boundary: EntraAuth::SignInGate_
+  - _Depends: 2.4_
+  - _Requirements: 4.5, 9.1, 9.2, 9.3, 9.4, 9.5_
+- [x] 2.6 (P) Entra ID のサインアウト URL を組み立てる部品を作る
+  - テナント ID から決定的に URL を組み立て、Entra ID への通信を行わない
+  - サインアウト後の戻り先を付ける。`logout_hint` があれば付け、なければ付けない。値は URL エンコードする
+  - 完了条件: ヒントあり・なし、エンコードをユニットテストで確認できる
+  - _Boundary: EntraAuth::LogoutUrl_
+  - _Depends: 2.1_
+  - _Requirements: 7.2, 7.3, 7.4_
+- [x] 2.7 (P) ログインからの絶対時間でセッションを失効させる部品を作る
+  - 認証イベントと、テスト用のログインヘルパーが発生させるイベントで、ログイン時刻をセッションに記録する（再サインインのたびに更新する）
+  - 既存セッションの復元イベントでのみ、時刻の欠落、または絶対時間の超過を検知したら、セッションを終了して、絶対時間の失効を示す理由で認証を要求する。それ以外のイベントでは失効させない（テスト用のログインが直ちに失効しないようにするため）
+  - 二重に登録されないように、導入は 1 回だけにする
+  - 完了条件: 上限ちょうど、超過、再サインインでの起点更新、時刻の欠落を、時間を固定したテストで確認できる
+  - _Boundary: EntraAuth::AbsoluteTimeout_
+  - _Depends: 2.1_
+  - _Requirements: 6.2, 6.4, 6.5_
+
+- [x] 2.8 strategy が、接続設定が不完全なとき、外部通信の前に失敗させる（5.4 の検証で見つかった不具合の修正。advisor の委任の範囲）
+  - 発行元（issuer）、クライアント識別子、クライアントシークレット、リダイレクト URI のいずれかが空のとき、認証の開始（request phase）とコールバック（callback phase）の両方で、gem の探索処理（発行元なしの WebFinger など、無関係なホストへの通信）に入る前に、失敗として通知する（失敗のキーは設定不備を示す固定のキー）。例外は外へ出さない
+  - 利用者向けの表示は既存の固定の失敗文言で、内部情報を含めない。ログには失敗のキーとクラス名のみを出す
+  - 5.4 のテストが記録している既知の不具合の注記と、WebFinger のスタブを外し、「外部への通信が一切ない（`assert_not_requested :any`）」の確認に締め直す
+  - 完了条件: 発行元が未設定の状態で認証を開始しても、外部への通信が一切発生せず、ログイン画面へ戻り固定の失敗文言が表示される。設定が完全なときの動作は変わらない。全テストが通る
+  - _Boundary: EntraAuth::Strategy_
+  - _Depends: 2.3, 5.4_
+  - _Requirements: 8.3, 4.2_
+
+- [x] 3. Core: アプリ側の設定、利用者モデル、文言
+- [x] 3.1 Devise と OmniAuth プロバイダを設定する
+  - 認証はサインイン用のモジュールのみを有効にし、パスワード、Remember me、その他のモジュールは使わない
+  - 継承した strategy をプロバイダとして登録し、設定部品の値（発行元、クライアント、リダイレクト URI）を渡す。開発環境で値が未設定でも起動できるよう、値は要求時に解決する（またはテスト環境の値を使う）
+  - 無操作時間を Devise の失効設定に反映する。メールアドレス列は表示専用で、パスワード認証のモジュールを持たないため、キーの正規化（大文字小文字・空白）の対象を空にする。サインアウトは全スコープのセッションをリセットする設定を維持する
+  - 完了条件: アプリが起動し、プロバイダが登録され、失効時間が設定部品の値になっている。値が未設定の開発環境でも起動できる（ルートの生成は 4.1 で確認する）
+  - _Boundary: Devise 初期化_
+  - _Depends: 1.3, 2.1, 2.3_
+  - _Requirements: 1.1, 6.1, 6.7, 8.4_
+- [x] 3.2 認証の初期化処理を結線する（設定の検証、絶対時間の導入、ログのフィルタ）
+  - 本番の起動時に設定を検証し、不備があれば項目名のみのエラーにする。ビルド時のアセット処理（ダミーの秘密鍵の環境）と、開発・テストでは検証しない
+  - 絶対時間の失効を、初期化時に 1 回だけ導入する
+  - ログのパラメータフィルタ（既存の設定ファイル）に、認可コードと state を追加する（既存の ID token 等の設定を確認する）
+  - 完了条件: 本番相当の環境で設定不備があると、起動時に項目名のみのエラーになる。それ以外の環境では起動でき、絶対時間の失効が 1 回だけ有効になっている。パラメータフィルタが認可コードと state を含む
+  - _Boundary: EntraAuth 初期化_
+  - _Depends: 2.1, 2.7, 3.1_
+  - _Requirements: 8.2, 8.3_
+- [x] 3.3 利用者モデルを作り、検証済みの認証結果から特定・作成できるようにする
+  - サインイン用のモジュールと失効のモジュールのみを持ち、パスワード認証や Remember me は持たない
+  - テナント ID とオブジェクト ID の組で既存の利用者を取得し、なければ作成する。名前とメールアドレスはログインのたびに最新へ更新する
+  - 同時に作成が競合した場合は、一意制約の違反を捕捉して再取得し、重複を作らない
+  - 完了条件: 新規作成、既存の再取得、表示用属性の更新、競合時の再取得、メール変更でも同一人物として扱われることを、モデルのテストで確認できる
+  - _Boundary: User_
+  - _Depends: 1.2, 3.1_
+  - _Requirements: 1.4, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 6.7_
+- [x] 3.4 (P) 失効・失敗・サインアウトの利用者向け文言を用意する
+  - 日本語と英語の両方で、無操作の失効、絶対時間の失効、サインイン失敗（キャンセルとその他を区別）、サインイン失敗の再試行の案内を用意する
+  - 失敗の文言に、内部の設定値、例外の内容、クレームを含めない固定文言にする
+  - 完了条件: 両言語で、各文言のキーが解決でき、欠落したキーがないことをテストで確認できる
+  - _Boundary: locales_
+  - _Requirements: 4.4, 6.4_
+
+- [x] 4. Integration: コントローラ、画面、ルート、認証の適用
+- [x] 4.1 ログイン画面、サインアウト、サインアウト後の画面を提供する
+  - ログイン画面は、POST でサインインを開始するボタン（外部ドメインへ遷移するため Turbo を無効化）を表示する。設定に問題がある場合は、内部情報を含まない画面を 503 で返し、問題の項目名だけをログに出す。サインイン済みなら、ログイン画面を出さずに戻す
+  - サインアウトは DELETE のみとし、先にアプリ側のセッションを終了してから、`logout_hint` を含めた Entra ID の URL へ転送する。サインアウト後の画面は公開ページとする
+  - ログイン画面・サインアウト後の画面・サインアウトの各アクションで、認証必須化を除外する。未サインインや失効済みでもサインアウトが安全に完了する。ログイン画面とサインアウトのルートに、認証失敗時の誘導先として使われる名前を付ける
+  - ルート定義を、このタスクが持つ: 認証のルート（コールバックのコントローラ指定を含む）、ログイン、サインアウト、サインアウト後の画面、トップページのルート。認証必須化の除外は、まだ定義されていない場合でも失敗しない指定にする
+  - 完了条件: ログイン画面、設定不備の画面、サインアウトの転送先 URL（ヒントあり・なし）、公開のサインアウト後画面を、コントローラのテストで確認できる。サインイン開始とコールバックのルートが生成されている
+  - _Boundary: SessionsController, routes_
+  - _Depends: 2.6, 3.1, 3.3, 3.4_
+  - _Requirements: 1.1, 1.3, 5.5, 7.1, 7.2, 7.3, 7.4, 7.5, 7.7, 8.3_
+- [x] 4.2 OIDC のコールバックと失敗を処理して、サインインを完了させる
+  - 検証済みの認証結果から値オブジェクトを作り、不正なら失敗として扱う。利用者を特定・作成し、ゲートを評価する
+  - 拒否なら、セッションを開始せず、ゲートの文言をログイン画面に表示する。受理なら、サインインして `logout_hint` をセッションに保存し、元のページ（なければトップ）へ戻す
+  - アクセス用の資格情報と ID token の生の値は参照も保存もしない
+  - 失敗時は、原因（失敗のキーと例外のクラス）を記録し、固定の文言でログイン画面へ戻す。キャンセルとその他を区別する。未サインインでも到達できる（認証必須化の除外は、まだ定義されていない場合でも失敗しない指定にする）
+  - 完了条件: 受理、拒否、値オブジェクトの失敗、失敗の各経路を、コントローラのテストで確認できる
+  - _Boundary: OmniauthCallbacksController_
+  - _Depends: 2.4, 2.5, 3.3, 3.4, 4.1_
+  - _Requirements: 1.2, 2.4, 2.6, 4.1, 4.2, 4.3, 4.4, 4.5, 5.5, 9.2, 9.3_
+- [x] 4.3 全ページの保護を既定で有効にし、最小のトップページを用意する
+  - アプリ全体を既定で認証必須にし、公開ページは各コントローラで明示的に除外する。未サインインは内容を返さず、ログイン画面へ誘導する
+  - 保護対象のトップページに、利用者の名前とサインアウトのボタン（Turbo を無効化）を表示し、レイアウトに通知の表示を追加する
+  - この保護は、他のコントローラと画面が揃ってから最後に有効にする。有効にした後も、4.1・4.2 の除外指定が効いていることを確認する
+  - 完了条件: 未サインインでトップページにアクセスするとログイン画面へ誘導され、サインイン済みなら表示される。サインイン後は当初アクセスしたページへ戻る。ログイン画面、コールバック、サインアウト後の画面は未サインインで到達できる
+  - _Boundary: ApplicationController, HomeController_
+  - _Depends: 4.1, 4.2_
+  - _Requirements: 1.5, 5.1, 5.2, 5.3, 5.4, 5.5, 7.6_
+
+- [x] 4.4 サインアウトで、そのユーザーの以前のセッションをサーバー側で無効にする（統合タスク。実装中の発見に基づく設計変更で、advisor の判断による）
+  - 利用者に、セッションの有効性を決めるランダム値（セッション用のトークン）を持たせる。列は NULL 可の文字列で、SQLite と PostgreSQL の両方で動くマイグレーションにする。ログイン時に未設定なら発行する
+  - Devise のセッション復元が、この値と一致するときだけ成功するようにする（値が変わると、以前に発行された Cookie は復元できない）
+  - サインアウト時に、認証済みの間に値を再発行してから、アプリ側のセッションを終了する（順序: ヒントの読み取り → 再発行 → サインアウト → 転送）。同じ利用者の他のブラウザのセッションも無効になる（意図した挙動として文書化する）
+  - 値は、モデルの `inspect` とログに出さない（既存のフィルタで伏せられることを確認する）
+  - 既存のテストを更新する: 3.3 の「セッションの往復」（salt が nil という前提）、5.3 の特性テスト（サインアウト前に控えた Cookie を再利用すると、ログイン画面へ転送される、に反転する）。別のブラウザ（別の Cookie）のセッションもサインアウトで終了するテストを追加する。絶対時間の実スタックのテストと、4.1 のセッションクリアのテストを再確認する
+  - 期限切れで既にセッションがない状態のサインアウトでは再発行されない（残余リスク。絶対時間で有界）ことをテストのコメントか文書に記録する
+  - 完了条件: サインアウト前に控えた Cookie を、サインアウト後に再利用しても保護されたページの内容が返らず、ログイン画面へ転送される。別のブラウザのセッションも同様に無効になる。サインアウト後の再サインインは正常に行える。全テストが通る
+  - _Boundary: User, SessionsController_
+  - _Depends: 4.3, 5.3_
+  - _Requirements: 7.1, 7.6_
+
+- [x] 5. Validation: 結合テスト、ログの安全性、手順書
+- [x] 5.1 サインインの一連の流れを結合テストで確認する
+  - 元のページへ戻ること、利用者が 1 回だけ作られること、ゲートの受理・拒否（拒否でもゲートの保存が残ること）、失敗の各経路（キャンセル、テナント不一致、オブジェクト ID の欠落）でセッションが開始されないことを確認する
+  - 完了条件: 上記のシナリオがすべて通り、失敗時はログイン画面に固定文言が表示される
+  - _Depends: 4.3_
+  - _Requirements: 1.2, 2.4, 2.5, 3.2, 3.3, 4.1, 4.2, 4.5, 5.2, 9.2, 9.3_
+- [x] 5.2 セッションの失効を結合テストで確認する
+  - 無操作の超過、絶対時間の超過（時間を固定）、失効の通知、失効後の再サインインで起点が更新されることを確認する
+  - 完了条件: 各シナリオが通り、失効後は保護ページの内容が返らず、失効の文言が表示される
+  - _Depends: 4.3_
+  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
+- [x] 5.3 サインアウトを結合テストで確認する
+  - アプリのセッションが終了し、ヒントあり・なしで正しい URL へ転送されること、未サインインでも安全に完了すること、サインアウト後に保護されることを確認する。GET や認証トークンなしの要求が拒否されることも確認する
+  - 完了条件: 各シナリオが通る
+  - _Depends: 4.3_
+  - _Requirements: 7.1, 7.2, 7.3, 7.5, 7.6, 7.7_
+- [x] 5.4 認証必須化とサインイン開始の制限を結合テストで確認する
+  - 既定の保護、公開ページの明示除外、サインイン前の入口への到達を確認する。サインイン開始が GET で受け付けられず、認証トークンなしの POST が拒否されることを確認する
+  - 設定不備のときに、ログイン画面が 503 の汎用画面になり、ログには項目名のみが出ることを確認する
+  - 完了条件: 各シナリオが通る
+  - _Depends: 4.3_
+  - _Requirements: 1.3, 5.1, 5.3, 5.4, 5.5, 8.3_
+- [x] 5.5 秘密情報とログの安全性、静的解析を確認する
+  - 認可コード、state、ID token がログのパラメータフィルタで伏せられることと、失敗時と設定不備時のログ・画面に、秘密情報、クレームの本体、例外メッセージが出ないことを、テストで確認する（フィルタの設定自体は 3.2 で行う）
+  - Brakeman と RuboCop の指摘がない状態にする
+  - 完了条件: ログの検査テストが通り、静的解析が指摘なしで終わる
+  - _Depends: 4.3_
+  - _Requirements: 4.3, 4.4, 8.2_
+- [x] 5.6 Entra ID 側の設定と実機確認の手順書を用意する
+  - アプリ登録の必須項目（v2.0 トークン、リダイレクト URI、サインアウト後の戻り先 URI、クライアントシークレット、`login_hint` のオプションクレーム）と、アプリに必要な環境変数を記載する
+  - 実機確認のチェックリスト（`oid` / `tid` / `login_hint` の有無、サインアウト後の戻り先の受理、アカウント選択が出ないこと、キャンセルの挙動）を記載する
+  - 要件 8.5 が手順書の提供を求めるため、この文書作成をタスクに含める（ドキュメント作成は通常除外だが、要件が求めているため例外とする）
+  - spike（2.2）で確定した、クレームの扱いを反映する
+  - ステアリングの構造文書に、認証ライブラリが自動読み込みの管理外で、初期化時に明示的に読み込まれる例外を追記する
+  - 完了条件: 手順書が存在し、必須項目と環境変数の一覧が設定部品の項目と一致する。ステアリングの構造文書に例外が記載されている
+  - _Depends: 2.1, 2.2_
+  - _Requirements: 8.5_
+
+## Implementation Notes
+- 実行環境: rails / rake は必ず `env -u DATABASE_URL` を前置する（DATABASE_URL は到達不能な PostgreSQL を指すため）。検証コマンド: `env -u DATABASE_URL bin/rails test` / `bin/rubocop` / `bin/brakeman --no-pager`（Rails 7.2.4 EOL の警告 1 件は既存で許容）/ `env -u DATABASE_URL bin/rails zeitwerk:check`
+- 実 Entra ID への通信は行わない。テストは WebMock（`disable_net_connect!`、許可リストなし）とテスト用 RSA 鍵のスタブのみ。開発環境でも、`/users/auth/openid_connect` への POST や `bin/dev` でのログイン操作をしない（discovery が実際の login.microsoftonline.com へ飛ぶため）。3.1 と 4.x の smoke は起動確認（`bin/rails runner` / `bin/rails routes`）に限り、リクエストフェーズの確認はテストスイート内で行う
+- テスト基盤（1.4）: `test/support/oidc_provider_stub.rb` の `OidcProviderStub`（`id_token(**overrides)` で署名済み ID token、discovery / jwks / token / userinfo の WebMock スタブ）。既定クレームに `login_hint` は含まれないため、必要なら `id_token(login_hint: "...")` で渡す。OmniAuth のモックは `Helpers#set_omniauth_mock` で設定し、テスト後に自動リセットされる。`Devise::Test::IntegrationHelpers` は結合テストに組み込み済み（`sign_in` は Devise の mapping ができてから有効）。ENTRA_* はテスト環境で架空の値が既定として入る（設定済みの値は上書きしない）
+- ライブラリ読み込み（1.3）: `lib/entra_auth.rb` が `lib/entra_auth/*.rb` を名前順（absolute_timeout → config → logout_url → sign_in_gate → strategy → verified_identity）で require する。**ファイルのトップレベル・クラス本体で他の EntraAuth 定数を参照しない**（実行時のメソッド内のみ可）。継承元は gem のクラス（`OmniAuth::Strategies::OpenIDConnect`）だけにする
+- テスト方針: Feature Flag Protocol を behavioral タスクに適用する。新規の独立コンポーネントでも、フラグ OFF で RED（テスト失敗）→ ON で GREEN → フラグ除去で GREEN を確認する。レビュアーは RED の証拠をこのプロトコルと照合する
+- spike 結果（2.2）: `raw_info` のキーは文字列（`raw_info["oid"]` が使える）。素の gem は callback で userinfo（Graph）を必ず 1 回呼び、失敗（タイムアウト、HTTP 500）は `fail!(:"execution expired")` / `fail!(:"Unknown HttpError")` という不規則なキーになる。そのため Strategy は private の `user_info` を約 5 行上書きして、検証済み ID token のクレームのみを使う（userinfo は呼ばない）。gem は `~> 0.8.0` に固定済みで、ガードのテストがある。id_token がトークン応答にない場合は fail-closed（nil で例外）なので、2.3 のテストで扱う
+- gem の挙動（2.2）: `client_auth_method: :post` はボディに認証情報を入れる（Authorization ヘッダなし）。discovery は 1 往復あたり 2 回（request / callback）、jwks は 1 回。`discovery: true` は必須（なしだと "No Host Info"）。state / nonce / PKCE verifier は callback で session から削除される。OmniAuth の strategy ごとの `on_failure` は効かず、グローバルの `OmniAuth.config.on_failure` を使う（Strategy 単体テストは setup で設定し teardown で戻す）。omniauth-rails_csrf_protection の検証は、Rack 単体のテストでは `OmniAuth.config.request_validation_phase` を無効化して回避する（実ルートでの CSRF は 3.x / 4.x / 5.4 で確認する）
+- 失敗キーの表（2.3。`env['omniauth.error.type']` は Symbol、`env['omniauth.error']` は例外）: `:invalid_id_token`（発行元・宛先・期限・nonce・署名・alg none・不正な JWT・id_token 欠落）、`:discovery_failed`（discovery / jwks の取得失敗）、`:timeout`（token endpoint の読み取りタイムアウト）、`:failed_to_connect`（token endpoint の接続失敗）、`:callback_error`（その他の StandardError）。gem / IdP のキーはそのまま通る: `:csrf_detected`（state 不一致・欠落）、`:access_denied`（IdP でキャンセル）、`:invalid_grant` など、`:Unknown`（本文なしの token endpoint エラー）。4.2 のコントローラは、キーごとに固定文言を出し、`error.message` / `error_reason` は表示しない。未知のキーは汎用文言にする。`InvalidToken` 系と `JSON::JWT::Exception` は `StandardError` 派生（当初の調査は誤り）。`Exception` 全体は rescue しない。Faraday の例外は `Faraday::ConnectionFailed` / `Faraday::TimeoutError` になる。OmniAuth の `fail!` はログに例外メッセージを書くため、ログの扱いは 5.5 で確認する
+- VerifiedIdentity（2.4）: `oid` / `tid` は trim + 小文字に正規化して保持する（(tid, oid) の重複を大文字小文字の違いで作らないため）。3.3 の `User.from_identity` はこの正規化済みの値で検索・保存する。`claims` は生のクレーム（正規化しない）なので、識別には `identity.oid` / `identity.tid` を使い、`claims` を使わない（ゲートにも周知する）。`expected_tenant_id` が空なら `:tenant_mismatch`（fail-closed）。`Invalid` は StandardError で、メッセージに reason のみを含む
+- SignInGate（2.5）: `register(callable)` の callable は `(identity, user) -> Decision`。ゲートは自分の変更を、受理・拒否のどちらでも自分で保存する（evaluate は保存も巻き戻しもしない）。拒否の `message` は利用者に表示される（空なら固定の汎用文言 `entra_authentication.failures.generic`。ロケールのキーは 3.4 で定義する）。ゲートの例外・非 Decision の返り値は `:gate_error` の拒否（ログはクラス名のみ）。テスト共通の設定で各テストの前後に `reset!` が呼ばれる。`entra-authorization` は、`RoleSync.call(user:, raw_info: identity.claims)` を呼び `Rejected(reason)` を `SignInGate.reject(reason:, message: I18n.t("authorization.rejections.<reason>"))` に変換する薄いアダプタを、自身の initializer で登録して接続する（authorization 側の設計の「callback に 1 行」は、この登録に置き換える。authorization の実装時に対応）
+- LogoutUrl（2.6）: `LogoutUrl.build(logout_hint:)` は、テナントが GUID でない・サインアウト後の URI がないなど Config が不完全なとき `nil` を返す（例外にしない）。4.1 の SessionsController は、`nil` のときアプリ側のサインアウト後に、ローカルのサインアウト後の画面へ遷移する。`id_token_hint` / `client_id` は URL に含めない。ヒントは非空ならそのまま（strip せず）送る。Config を差し替えるテストの `with_settings` ヘルパーは config_test.rb / logout_url_test.rb に重複している（共通化は必要になったら test/support へ）
+- AbsoluteTimeout（2.7）: `EntraAuth::AbsoluteTimeout.install!`（冪等。`HOOK` の同一性で二重登録を防ぐ）は 3.2 の initializer から 1 回呼ぶ。`:authentication` と `:set_user`（Devise のテスト用 `sign_in` / `login_as`）で `login_at` を記録し、`:fetch` のみで失効を判定する（上限ちょうどは有効、`now - login_at > 上限` で失効、`login_at` 欠落も失効）。失効時は `warden.logout(scope)` して `throw :warden, message: :absolute_timeout`。本番の callback（4.2）は `sign_in(:user, user, event: :authentication)` を使うこと。i18n キー `devise.failure.absolute_timeout` は 3.4 で定義する。本番では `login_at` は Warden のセッション（暗号化・署名済みの Cookie）に入るのでクライアントは偽造できない
+- Devise 初期化（3.1）: `config/initializers/devise.rb` は `entra_auth.rb` より先に読まれるため、自身で `require "entra_auth"` する。OmniAuth プロバイダは `strategy_class: EntraAuth::Strategy` + `setup:`（lambda）で、issuer と client_options（identifier / secret / redirect_uri）を要求ごとに Config から解決する（起動に ENTRA_* は不要。未設定でも lambda は例外にならず nil のまま）。`Devise.timeout_in` は起動時に Config.idle_timeout で固定される（変更には再起動が必要）。Devise は OmniAuth のグローバルな `path_prefix` を nil にする（devise 5.0.4 の `lib/devise/omniauth.rb`）。実アプリでは `devise_for` のルート定義が `/users/auth` を設定する（`omniauth_path_prefix` は手動で設定しない）。Strategy 単体テストの harness は `path_prefix: "/auth"` を明示している。**4.1 で、ルートが `/users/auth/openid_connect` と `/users/auth/openid_connect/callback` になり、redirect_uri と一致することを確認する**
+- 初期化の結線（3.2）: `config/initializers/entra_auth.rb` は全環境で `AbsoluteTimeout.install!` を呼び、本番（`SECRET_KEY_BASE_DUMMY` がないとき）だけ `Config.validate!` を起動時に実行する（エラーは項目名のみ）。**運用注意（5.6 の手順書に書く）**: 本番で `SECRET_KEY_BASE_DUMMY` なしに起動するコマンド（`db:migrate`、console、runner）は、ENTRA_* が未設定だと失敗する。Docker のビルド（`SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile`）は影響なし。`bin/docker-entrypoint` の `db:prepare` は実行時なので本物の ENTRA_* がある。`filter_parameters` に `code` / `state` / `nonce`（完全一致の正規表現）と `login_hint` を追加済み（`id_token` / `access_token` / `client_secret` は既存の `:token` / `:secret` で伏せられる）
+- User（3.3）: `devise :omniauthable, :timeoutable` のみ（`User.devise_modules == [:omniauthable, :timeoutable]`）。`User.from_identity(identity)` は正規化済みの `identity.tid` / `identity.oid` で検索・作成し、name / email は毎回最新値（nil を含む）で上書きする（表示専用のミラー）。それ以外の属性（将来の `roles` など）には触れない。作成の競合は `RecordNotUnique` を捕捉して再検索する（最大 3 回）。呼び出し元が明示的な外側のトランザクション内にいる場合は PostgreSQL で影響しうるが、設計上そのような呼び出しはない（必要なら `transaction(requires_new: true)` で補強）。テストの競合再現は `User.find_by` のスタブに依存する。セッションは `[id, nil]`（salt なし）で、id のみで復元される
+- 文言（3.4）: `config/locales/entra_authentication.{ja,en}.yml` に、`devise.failure.timeout`（無操作）/ `devise.failure.absolute_timeout`（絶対時間）/ `devise.failure.unauthenticated`、`entra_authentication.failures.{cancelled, failed, generic, rejected}` を定義（静的で内部情報なし。`rejected` は未使用の予備）。アプリの既定ロケールは `:en` のまま。4.2 は、失敗キー `access_denied` → `cancelled`、それ以外 → `failed` を表示する。4.1 / 4.3 の画面用の文言は、別のロケールファイル（例: `config/locales/sessions.{ja,en}.yml`）に追加する。SignInGate のテストは、現在のロケールの `generic` キーと比較する
+- ルートとセッション（4.1）: `devise_for :users, only: [:omniauth_callbacks], controllers: { omniauth_callbacks: "users/omniauth_callbacks" }` + `devise_scope :user`（`GET /login` = `new_user_session`、`DELETE /logout` = `destroy_user_session`、`GET /signed_out`）+ `root "home#index"`（ルートのみ。HomeController は 4.3）。`SessionsController` は `skip_before_action :authenticate_user!, only: %i[new signed_out destroy], raise: false`（`raise: false` は 4.3 の後も維持してよい）。`destroy` はアプリ側を先に `sign_out`（全スコープ）してから 303 で LogoutUrl（nil なら `/signed_out`）へ。（5.5 で `head :see_other, location:` に変更済み。`allow_other_host` は使わない。）画面の文言は `config/locales/sessions.{ja,en}.yml`。レイアウトに flash（notice / alert）の最小の表示を追加済み（4.3 はサインアウトのボタンなど残りを追加する）。テスト環境は `allow_forgery_protection = false` なので、CSRF のテストは一時的に有効化して戻す（`with_forgery_protection`）。Devise の mapping ができたので、Warden のテストで使うユーザーは実 `User` にする。**4.2 への引き継ぎ**: (1) 4.1 のテスト「POST /users/auth/openid_connect without a token is rejected」は、`Users::OmniauthCallbacksController` が未実装のため `NameError` を許容している。4.2 で、ログイン画面（`/login`）へのリダイレクトを厳密に確認する形に直し、`rescue NameError` を外す。(2) `allow_browser` は UA なしのテストを通す
+- コールバック（4.2）: `Users::OmniauthCallbacksController#openid_connect` は VerifiedIdentity → `User.from_identity` → `SignInGate.evaluate` → 受理なら `sign_in(:user, user, event: :authentication)` + `logout_hint` 保存（あるときのみ）+ `after_sign_in_path_for`、拒否・`Invalid`・その他の StandardError は、セッションなしでログイン画面（303）へ。`failure` は失敗キー + 例外クラス名のみをログに出し、`access_denied` なら cancelled、それ以外は failed の固定文言。`skip_forgery_protection only: :failure`（`failure` はルートなしで OmniAuth の `on_failure` 経由のみ、状態を変えない。OmniAuth のリクエストフェーズの CSRF は middleware で維持）。4.1 の「トークンなし POST」のテストは、`/login` への厳密なリダイレクトの確認に変更済み。**フォローアップ候補（最終検証で扱う）**: (1) `openid_connect` の広い `rescue StandardError` は DB エラー等もログのみに落とす（`ActiveRecord::ActiveRecordError` は再送出するか `Rails.error.report` を使うと、監視に届く）。(2) rescue が `sign_in` 成功後の例外も包むため、その場合はサインイン済みなのに失敗文言になりうる（rescue 内で `sign_out` する案）。(3) OmniAuth 自身の `fail!` ログには例外メッセージが含まれる（5.5 で確認）。(4) Entra の `form_post` を使う場合はコールバックにも CSRF の skip が必要（現状は query なので不要）
+- 認証必須化（4.3）: `ApplicationController` に `before_action :authenticate_user!` を無条件で追加（`allow_browser` は維持）。公開は明示的な `skip_before_action` のみ（SessionsController の new / signed_out / destroy、コールバックのコントローラ）。`/up`（ヘルスチェック）と PWA（`/service-worker`、`/manifest`）は `ActionController::Base` 継承のため対象外で公開のまま。ルートを列挙して、未認証で /login へ転送されることを確認するガードのテストがある（動的セグメントのルートは対象外。将来追加したら拡張する）。トップページ（`home#index`）は名前をエスケープして表示（nil なら `home.index.unnamed`）。レイアウトのサインアウトのボタンは `button_to` DELETE + `data-turbo="false"`（サインイン済みのみ）。文言は `config/locales/home.{ja,en}.yml`。元のページ（クエリ含む）への復帰は E2E テスト済み
+- サインインの結合テスト（5.1）: `test/integration/sign_in_flow_test.rb` は `OmniAuth.config.test_mode` を使わず、実際の Strategy を WebMock の `OidcProviderStub` に対して通す（GET /login → POST /users/auth/openid_connect（実際の認証トークン）→ Location から state / nonce → スタブの token endpoint が同じ nonce の ID token を返す → GET callback）。このやり方は 5.2 / 5.3 / 5.4 でも再利用できる。**5.5 への引き継ぎ**: (1) Rails のリクエストログ行が、IdP の `error_description`（callback の URL クエリ）をそのまま出す。`filter_parameters` に `error_description` の追加を検討する。(2) `OmniAuth.logger`（`Rails.logger` とは別）が失敗時に例外メッセージを書く（例: `Authentication failure! invalid_grant: ... :: AADSTS...`）。OmniAuth のロガーの出力先とメッセージの扱い（例: ログレベルの調整、フィルタ、または出力を抑える）を決めて確認する。(3) 4.2 のフォローアップ候補（広い rescue の扱い、サインイン成功後の例外での sign_out）
+- 失効の結合テスト（5.2）: `test/integration/session_expiry_test.rb`。境界の意味: Devise の無操作は `last_request_at <= timeout_in.ago` で失効（ちょうどの秒は失効）、AbsoluteTimeout は `now - login_at > 上限` で失効（ちょうどは有効）。無操作の失効は、リダイレクトが 2 段（試行先 `/` を経て `/login`）になる（Devise が `flash[:timedout]` 付きで試行先へ転送するため）。`travel_to` はブロックなしで使う（Rails 7.2 はネストを拒否。復元は `after_teardown`）。非 GET の保護ルートは現状ないため、`DELETE /logout` と `POST /` で確認している
+- サインアウトの結合テスト（5.3）: `test/integration/sign_out_flow_test.rb`。Entra の URL は Location を見るだけで辿らない。無操作で失効した後の DELETE /logout は、Devise の FailureApp が `/login` へ 302 する（Entra には行かない。アプリのセッションは失効済みで 500 にならない。Entra の SSO セッションは終了しない縮退を許容する。5.6 の手順書に書く）。CSRF のトークンは、DELETE では `<meta name="csrf-token">` のものを使う（`/login` の `button_to` のフォーム用トークンは 422）。**発見（セキュリティ）**: ステートレスな Cookie セッションのため、サインアウト前に控えた Cookie が、サインアウト後も有効（Devise に `database_authenticatable` がなく `authenticatable_salt` が nil）。無操作の期限は再利用のたびに更新され、絶対時間（8 時間）でのみ切れる。特性テスト「cookie captured before sign-out ... replay outcome」が現状を固定している。advisor の判断（ユーザーの委任）で、タスク 4.4 で堅牢化する（下記）
+- **設計変更（advisor 承認、ユーザーの委任）**: 5.3 の検証でステートレスな Cookie の再利用が判明し、`users.session_token`（`authenticatable_salt`）をサインアウトで再発行してサーバー側で無効にする（タスク 4.4、`design.md` / `research.md` を更新済み）。**`entra-authorization` への Revalidation Trigger**: `users` テーブルに `session_token` 列が増え、`User` が `authenticatable_salt` を上書きし、サインアウトの動作（同じ利用者の全ブラウザのセッション終了）が変わる。authorization 側の `users` へのマイグレーション・モデル・テストと整合を再確認すること
+- セッションのサーバー側無効化（4.4）: `users.session_token`（`has_secure_token`、NULL 可の文字列）を `User#authenticatable_salt` にし、`SessionsController#destroy` は「ヒント読み取り → `rotate_session_token!`（認証済みの間）→ `sign_out`（`ensure` で必ず実行）→ 303」。再発行の失敗でもサインアウトは行い、ログはクラス名のみ。サインイン時は再発行しない（同じ利用者の全ブラウザが 1 つの値を共有し、どこでサインアウトしても全て終了する。意図した挙動）。`from_identity` が nil の既存行にも値を発行する。マスク: `session_token` は既存の `:token` フィルタで `inspect` / ログ / パラメータから伏せられる（テストで確認）。残余リスク: 期限切れでセッションが既にない状態のサインアウトでは再発行されない（Cookie は無操作 / 絶対時間で有界。テストのコメントに記録）。5.3 の特性テストは「再利用するとログイン画面へ転送」に反転済み。下流（`entra-authorization`）は `users` へのマイグレーション・モデルとの整合を再確認すること
+- 認証必須化とサインイン開始の結合テスト（5.4）: `test/integration/access_control_flow_test.rb`。**不具合の発見**: 発行元（テナント）が未設定のまま POST /users/auth/openid_connect すると、gem が WebFinger 検出に落ち、無関係なホスト `https` へ GET を試みる（Entra ID ではなく、秘密情報は送られない。テストの WebMock では `Exception` 派生の `NetConnectNotAllowedError` が Strategy の rescue をすり抜ける）。タスク 2.8 で、外部通信の前に設定不備として失敗させる（5.4 のテストも締め直す）
+- 設定不備の fail-fast（2.8）: `EntraAuth::Strategy` は、`request_phase` / `callback_phase` の先頭（`super` の前）で、issuer / client_options（identifier・secret・redirect_uri）のいずれかが空（nil・空文字・空白）なら `fail!(:invalid_configuration)` とし、外部通信（発行元なしの WebFinger など）と state / nonce / PKCE の生成に入らない。失敗の表示は既存の固定の `failed` 文言（`failure` アクションは例外なしでもログ `key=invalid_configuration error=none`）。redirect_uri が空のケースは Strategy 単体のテストのみで確認している
+- ログの安全性（5.5）: `test/integration/log_hygiene_test.rb`（`Rails.logger` と `OmniAuth.logger` の両方を、INFO（本番の既定）で捕捉して、秘密・code・state・nonce・JWT・ヒント・session_token・例外 / IdP のメッセージ・クレームの値が出ないことと、安全な診断（失敗キー・例外クラス・ゲートの reason・設定不備の項目名）が出ることを確認）。本番コードの修正 3 件: (1) `filter_parameters` に `error_description` / `error_uri`（完全一致の正規表現）を追加、(2) `EntraAuth::Strategy#fail!` を上書きして、OmniAuth の失敗ログを `Authentication failure! <key>: <例外クラス>`（メッセージなし）にする（env の 3 キーと `on_failure` の呼び出し・戻り値は gem と同一）、(3) `SessionsController#destroy` は `redirect_to` から `head :see_other, location:` に変更（Rails の `Redirected to ...?logout_hint=` ログを避ける。レスポンスは 303 + Location で同一。**`allow_other_host` はアプリ内のどこにもなくなり、URL は LogoutUrl が固定のホストで組み立てる**）。加えて、IdP 由来の失敗キーはログ用に `[\w.-]` 64 文字に整形（ログ注入対策）。ログ呼び出しの一覧は、テストが `puts|pp|p` の不在とログを出すファイルの集合を固定している。SQL の DEBUG ログには name / email / oid が出る（本番は INFO）。`bundler-audit` は未導入。4.2 のフォローアップ（広い rescue、成功後の例外での sign_out、`form_post` の CSRF skip）は未対応のまま
+- 手順書（5.6）: `docs/entra_id_setup.md`（Entra ID 側の登録、環境変数 / credentials、セッション寿命、サインアウトの挙動と制約、運用上の注意、実機確認チェックリスト、トラブルシューティング、`lib/entra_auth` の読み込み規約）。整合性テスト `test/docs/entra_id_setup_doc_test.rb`（14 件）が、ENV_KEYS・既定値・ルート・ロケール文言・problems の項目名との食い違いを検知する。アプリの既定ロケールは `:en`（ja は `config.i18n.default_locale = :ja` で切り替える選択肢として文書化）。実機で未確認の項目（`post_logout_redirect_uri` に非 callback の URI が通るか、`login_hint` クレーム、v1/v2 の発行元の影響）は手順書で明示している
