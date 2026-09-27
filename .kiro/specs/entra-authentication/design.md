@@ -550,7 +550,7 @@ end
 **Responsibilities & Constraints**
 - `ApplicationController` を継承し、`skip_before_action :authenticate_user!`（`new`, `signed_out`）で公開する。`destroy` は認証を要求しない（未サインインでも安全に完了する）
 - `new`: `Config.valid?` でなければ 503 の `unavailable` 画面を出し、項目名のみをログへ出す（8.3）。サインイン済みなら `after_sign_in_path_for` へ。それ以外は `button_to ... method: :post, data: { turbo: false }` を持つ画面（1.1, 1.3）
-- `destroy`: (1) `logout_hint = warden.session(:user)["logout_hint"]` を読み、(2) 認証済みの間に `current_user.rotate_session_token!` で `session_token` を再発行し（以前の全 Cookie を無効にする。7.1）、(3) `sign_out` でアプリ側を先に終了し（7.1, 7.5）、(4) `redirect_to EntraAuth::LogoutUrl.build(logout_hint:), allow_other_host: true`（7.2, 7.3）
+- `destroy`: (1) `logout_hint = warden.session(:user)["logout_hint"]` を読み、(2) 認証済みの間に `current_user.rotate_session_token!` で `session_token` を再発行し（以前の全 Cookie を無効にする。7.1）、(3) `sign_out` でアプリ側を先に終了し（7.1, 7.5）、(4) `head :see_other, location: EntraAuth::LogoutUrl.build(logout_hint:)`（`redirect_to` だと Rails が `Redirected to ...?logout_hint=...` をログに出すため `head` を使う。URL は `LogoutUrl` が組み立てる固定のホストのみで、利用者が指定できない）（7.2, 7.3）
 - `signed_out`: 公開のサインアウト完了画面（7.4）。ここへは `post_logout_redirect_uri` で戻る
 
 **Dependencies**
@@ -654,7 +654,7 @@ end
 - サインイン開始は POST + 認証トークン。`allowed_request_methods` を広げない（1.3）
 - Access token は保持・利用しない。ID token は Cookie に入れない（2.6）
 - セッション: `sign_in` でセッション ID が更新される（固定化の対策）。サインアウトはセッション全体をリセットし（`sign_out_all_scopes` の既定）、加えて `session_token` を再発行して、サインアウト前に控えられた Cookie や他のブラウザのセッションもサーバー側で無効にする（ステートレスな Cookie セッションの再利用対策。副作用として、同じ利用者の全ブラウザのセッションが終了する）。期限切れで既にセッションがない場合は再発行されない（残余リスクは絶対時間で有界）
-- オープンリダイレクト: Devise 5.0.4 以上を使う。外部への遷移は logout URL のみ（`allow_other_host: true` は `destroy` の 1 か所に限定）
+- オープンリダイレクト: Devise 5.0.4 以上を使う。外部への遷移は logout URL のみ（`destroy` の `head :see_other, location:` の 1 か所に限定。URL は `EntraAuth::LogoutUrl` が固定のホスト + GUID のテナントで組み立てる。オープンリダイレクト保護の対象外の経路なので、利用者の入力を URL に使わない）
 - 秘密情報: `client_secret` は環境変数または credentials。`Config#inspect` に出さない（8.2）
 
 ## Migration Strategy
