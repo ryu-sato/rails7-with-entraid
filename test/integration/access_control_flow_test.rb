@@ -161,16 +161,24 @@ class AccessControlFlowTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # Incomplete config: the setup hook leaves the missing value nil. Observed
-  # behaviour (see CONCERNS of task 5.4): with issuer nil the gem tries WebFinger
-  # discovery against a bogus host ("https"), never Entra ID. We stub that
-  # lookup as a network failure (SocketError) so the test stays hermetic.
-  test "config failure: the start POST fails safely back to /login and never contacts Entra ID" do
-    token = login_token
-    stub_request(:get, %r{\Ahttps://https/\.well-known/webfinger}).to_raise(SocketError.new("getaddrinfo failed"))
-    with_entra_env("ENTRA_TENANT_ID" => nil) do
-      post START, params: { authenticity_token: token }
-      assert_start_rejected_to_login
+  # Incomplete config: the setup hook leaves the missing value nil. The strategy
+  # fails with :invalid_configuration before any discovery (defect fixed by task
+  # 2.8: the gem used to fall back to WebFinger against a bogus host), so NO
+  # outbound request is made at all.
+  {
+    "tenant_id" => "ENTRA_TENANT_ID",
+    "client_id" => "ENTRA_CLIENT_ID",
+    "client_secret" => "ENTRA_CLIENT_SECRET",
+    "app_base_url" => "ENTRA_APP_BASE_URL"
+  }.each do |item, var|
+    test "config failure (#{item} unset): the start POST fails back to /login with no outbound request" do
+      token = login_token
+      WebMock::RequestRegistry.instance.reset! # only requests made by the start POST count
+      with_entra_env(var => nil) do
+        post START, params: { authenticity_token: token }
+        assert_start_rejected_to_login
+        assert_not_requested :any, /.*/
+      end
     end
   end
 
