@@ -194,7 +194,7 @@
   - 完了条件: ログの検査テストが通り、静的解析が指摘なしで終わる
   - _Depends: 4.3_
   - _Requirements: 4.3, 4.4, 8.2_
-- [ ] 5.6 Entra ID 側の設定と実機確認の手順書を用意する
+- [x] 5.6 Entra ID 側の設定と実機確認の手順書を用意する
   - アプリ登録の必須項目（v2.0 トークン、リダイレクト URI、サインアウト後の戻り先 URI、クライアントシークレット、`login_hint` のオプションクレーム）と、アプリに必要な環境変数を記載する
   - 実機確認のチェックリスト（`oid` / `tid` / `login_hint` の有無、サインアウト後の戻り先の受理、アカウント選択が出ないこと、キャンセルの挙動）を記載する
   - 要件 8.5 が手順書の提供を求めるため、この文書作成をタスクに含める（ドキュメント作成は通常除外だが、要件が求めているため例外とする）
@@ -232,3 +232,4 @@
 - 認証必須化とサインイン開始の結合テスト（5.4）: `test/integration/access_control_flow_test.rb`。**不具合の発見**: 発行元（テナント）が未設定のまま POST /users/auth/openid_connect すると、gem が WebFinger 検出に落ち、無関係なホスト `https` へ GET を試みる（Entra ID ではなく、秘密情報は送られない。テストの WebMock では `Exception` 派生の `NetConnectNotAllowedError` が Strategy の rescue をすり抜ける）。タスク 2.8 で、外部通信の前に設定不備として失敗させる（5.4 のテストも締め直す）
 - 設定不備の fail-fast（2.8）: `EntraAuth::Strategy` は、`request_phase` / `callback_phase` の先頭（`super` の前）で、issuer / client_options（identifier・secret・redirect_uri）のいずれかが空（nil・空文字・空白）なら `fail!(:invalid_configuration)` とし、外部通信（発行元なしの WebFinger など）と state / nonce / PKCE の生成に入らない。失敗の表示は既存の固定の `failed` 文言（`failure` アクションは例外なしでもログ `key=invalid_configuration error=none`）。redirect_uri が空のケースは Strategy 単体のテストのみで確認している
 - ログの安全性（5.5）: `test/integration/log_hygiene_test.rb`（`Rails.logger` と `OmniAuth.logger` の両方を、INFO（本番の既定）で捕捉して、秘密・code・state・nonce・JWT・ヒント・session_token・例外 / IdP のメッセージ・クレームの値が出ないことと、安全な診断（失敗キー・例外クラス・ゲートの reason・設定不備の項目名）が出ることを確認）。本番コードの修正 3 件: (1) `filter_parameters` に `error_description` / `error_uri`（完全一致の正規表現）を追加、(2) `EntraAuth::Strategy#fail!` を上書きして、OmniAuth の失敗ログを `Authentication failure! <key>: <例外クラス>`（メッセージなし）にする（env の 3 キーと `on_failure` の呼び出し・戻り値は gem と同一）、(3) `SessionsController#destroy` は `redirect_to` から `head :see_other, location:` に変更（Rails の `Redirected to ...?logout_hint=` ログを避ける。レスポンスは 303 + Location で同一。**`allow_other_host` はアプリ内のどこにもなくなり、URL は LogoutUrl が固定のホストで組み立てる**）。加えて、IdP 由来の失敗キーはログ用に `[\w.-]` 64 文字に整形（ログ注入対策）。ログ呼び出しの一覧は、テストが `puts|pp|p` の不在とログを出すファイルの集合を固定している。SQL の DEBUG ログには name / email / oid が出る（本番は INFO）。`bundler-audit` は未導入。4.2 のフォローアップ（広い rescue、成功後の例外での sign_out、`form_post` の CSRF skip）は未対応のまま
+- 手順書（5.6）: `docs/entra_id_setup.md`（Entra ID 側の登録、環境変数 / credentials、セッション寿命、サインアウトの挙動と制約、運用上の注意、実機確認チェックリスト、トラブルシューティング、`lib/entra_auth` の読み込み規約）。整合性テスト `test/docs/entra_id_setup_doc_test.rb`（14 件）が、ENV_KEYS・既定値・ルート・ロケール文言・problems の項目名との食い違いを検知する。アプリの既定ロケールは `:en`（ja は `config.i18n.default_locale = :ja` で切り替える選択肢として文書化）。実機で未確認の項目（`post_logout_redirect_uri` に非 callback の URI が通るか、`login_hint` クレーム、v1/v2 の発行元の影響）は手順書で明示している

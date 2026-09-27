@@ -45,6 +45,7 @@ Rails 標準の MVC レイヤー構成（Convention over Configuration）。
 
 Ruby は Zeitwerk による自動読み込みのため `require` は原則不要。
 `lib/` も `config.autoload_lib` で自動読み込み対象（`lib/assets`, `lib/tasks` を除く）。
+**例外**: `lib/entra_auth/`（認証ライブラリ）は Zeitwerk の管理外で、`config/initializers/entra_auth.rb`（と `config/initializers/devise.rb`）から明示的に `require` する。Devise の initializer が起動中に `EntraAuth::Strategy` を参照するため、自動読み込みの準備を待てない。この規約の詳細は `docs/entra_id_setup.md` を参照。
 
 JS は importmap の論理名で import する:
 ```javascript
