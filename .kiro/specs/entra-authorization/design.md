@@ -125,11 +125,15 @@ db/migrate/
 docs/
 └── entra-authorization.md                        # Entra ID 側設定手順・方式選択・事前確認・制約
 test/
-├── models/{role,ability}_test.rb
-├── models/authorization/{claims,role_sync}_test.rb
+├── models/{role,ability,user_roles}_test.rb
+├── models/authorization/{claims,result,role_source,role_sync,sign_in_gate_adapter,messages}_test.rb
 ├── models/authorization/resolvers/{roles_claim,groups_claim}_resolver_test.rb
-├── controllers/authorization_handling_test.rb
-└── integration/role_login_rejection_test.rb
+├── integration/authorization_handling_test.rb      # 権限なし応答（テスト専用 probe コントローラ）
+├── integration/authorization_enforcement_test.rb   # 権限判定（コントローラ・ビュー・ID token から権限まで）
+├── integration/role_sign_in_test.rb                # 実際のサインイン経路でのロール保存・拒否
+├── integration/role_login_refusal_test.rb          # ロール起因の拒否フロー全般
+├── docs/entra_authorization_guide_test.rb          # 手順書と実装の設定名の一致
+└── support/{authorization_gate,authorization_probe,oidc_sign_in_flow}.rb  # テスト用の共通部品
 ```
 
 ### Modified Files
@@ -362,7 +366,7 @@ module Authorization
   end
 
   module RoleSync
-    def self.call(user: User, raw_info: Hash[String, untyped]) -> Synced | Rejected
+    def self.call(user: User, raw_info: Hash[String, untyped], settings: Settings) -> Synced | Rejected  # settings は既定を使う。テストだけが差し替える
   end
 end
 ```
