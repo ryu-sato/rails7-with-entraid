@@ -1,0 +1,5 @@
+authorization:
+  # roles  : App Role assignments (Entra ID P1 / P2 tenants)
+  # groups : groups claim + authorization.group_role_map (Free tenants)
+  # Override in config/settings.local.yml (git-ignored) if this deployment's tenant differs.
+  role_source: roles # roles | groups
