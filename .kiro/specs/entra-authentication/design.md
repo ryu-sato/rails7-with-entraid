@@ -319,6 +319,7 @@ end
 - `request_phase` / `callback_phase` を `rescue` する。捕捉対象: `StandardError`、`OpenIDConnect::ResponseObject::IdToken::InvalidToken`、`JSON::JWT::Exception`。`Exception` 全体は捕捉しない
 - 変換先の `fail!` キー: `:invalid_id_token`（検証エラー）、`:discovery_failed`（discovery / jwks 取得失敗）、`:callback_error`（その他）。gem が出す `:csrf_detected` / `:timeout` / `:failed_to_connect` と、`access_denied` などの IdP のエラーはそのまま通す
 - 例外の内容（クレームの中身、トークン）を `fail!` の引数のログ以外へ出さない
+- **設定不備は外部通信の前に失敗させる**（実装中の発見）: issuer / client_options（identifier・secret・redirect_uri）のいずれかが空なら、`request_phase` / `callback_phase` の先頭で `fail!(:invalid_configuration)` とし、gem の探索（発行元なしの WebFinger など、無関係なホストへの通信）に入らない（8.3、4.2）
 
 **Dependencies**
 - External: omniauth_openid_connect 0.8.x — 継承元 (P0)、Entra ID の OIDC エンドポイント (P0)
