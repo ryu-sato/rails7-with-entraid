@@ -66,3 +66,5 @@ group :test do
   # Stub external HTTP requests (OIDC endpoints are never contacted for real)
   gem "webmock"
 end
+
+gem "pg", "~> 1.6"
