@@ -1,0 +1,13 @@
+# Shared settings (config gem). Environment files in config/settings/ and the
+# git-ignored config/settings.local.yml override these values.
+#
+# role_source is deliberately NOT set here: every environment must choose the
+# role source explicitly (see config/settings/<env>.yml), and the app refuses
+# to boot when it is missing or unknown (config/initializers/authorization.rb).
+authorization:
+  # Used only when role_source is "groups".
+  # Maps an Entra ID group Object ID (GUID) to an application role name.
+  # Example:
+  #   group_role_map:
+  #     "00000000-0000-0000-0000-000000000001": admin
+  group_role_map: {}

@@ -1,0 +1,2 @@
+authorization:
+  role_source: roles # roles | groups
