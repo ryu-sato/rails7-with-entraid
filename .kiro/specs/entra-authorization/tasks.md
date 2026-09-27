@@ -128,3 +128,4 @@
 - 1.3: `users.roles` は SQLite で検証済み（既定値・読み書き・NOT NULL・redo）。PostgreSQL は `pg` が Gemfile になく `DATABASE_URL` も到達不能なため未検証（DB の選定は本 spec の対象外）。JSON カラムは PostgreSQL でも標準サポートのため、DB を PostgreSQL に決めたときに同じマイグレーションでテストを実行して確認する
 - 接続方式: callback には触れず、authentication の `EntraAuth::SignInGate.register` にアダプタを登録する（design.md 更新済み）。ゲートのテストは各テストの前後で `reset!` されるため、アダプタを使うテストは setup で再登録する
 - config gem の `Config` はトップレベルの定数で、authentication の `EntraAuth::Config` は名前空間内のため衝突しない（1.1 で全テスト通過を確認）
+- 1.3 の影響: authentication の `test/models/user_test.rb` と `test/db/users_table_test.rb` は `users` の列を完全一致で検証しているため、`roles` の追加に合わせて期待値に `roles` を加えた（資格情報らしい列を拒む意図は維持）。以後、コミット前に必ず全テストの結果を確認する（1.3・1.4 のコミットは全テスト未確認で行い、この修正で解消した）
