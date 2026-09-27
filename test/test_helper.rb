@@ -11,6 +11,9 @@ require_relative "../config/environment"
 
 require "rails/test_help"
 require "webmock/minitest"
+# Object#stub は minitest/mock が必要。未読み込みだと credentials.stub などが method_missing に落ち、
+# ブロックが実行されずにテストが空振りで通ることがあるため、全テストで読み込む。
+require "minitest/mock"
 
 # No real communication with Entra ID or any external host from tests.
 WebMock.disable_net_connect!
