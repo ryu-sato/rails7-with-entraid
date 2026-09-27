@@ -1,0 +1,24 @@
+{
+  "ignored_warnings": [
+    {
+      "warning_type": "Unmaintained Dependency",
+      "warning_code": 120,
+      "fingerprint": "d84924377155b41e094acae7404ec2e521629d86f97b0ff628e3d1b263f8101c",
+      "check_name": "EOLRails",
+      "message": "Support for Rails 7.2.4 ended on 2026-08-09",
+      "file": "Gemfile.lock",
+      "line": 545,
+      "link": "https://brakemanscanner.org/docs/warning_types/unmaintained_dependency/",
+      "code": null,
+      "render_path": null,
+      "location": null,
+      "user_input": null,
+      "confidence": "High",
+      "cwe_id": [
+        1104
+      ],
+      "note": "承認済みのリスク（解消ではなく了承）。Rails 7.2 はプロジェクトの意図的な選択（.kiro/steering/tech.md）。7.2.4 は 7.2 系の最終リリースで、2026-08-09 以降はセキュリティ修正が提供されない。解消するには Rails 8.1 以降へのアップグレードが必要で、それは別の spec で判断する。Rails を上げたらこのエントリは削除する（test/config/brakeman_ignore_test.rb が、Rails のバージョンが変わると失敗して気づかせる）。"
+    }
+  ],
+  "brakeman_version": "8.0.6"
+}
