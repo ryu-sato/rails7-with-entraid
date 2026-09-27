@@ -145,7 +145,7 @@
   - _Depends: 4.1, 4.2_
   - _Requirements: 1.5, 5.1, 5.2, 5.3, 5.4, 5.5, 7.6_
 
-- [ ] 4.4 サインアウトで、そのユーザーの以前のセッションをサーバー側で無効にする（統合タスク。実装中の発見に基づく設計変更で、advisor の判断による）
+- [x] 4.4 サインアウトで、そのユーザーの以前のセッションをサーバー側で無効にする（統合タスク。実装中の発見に基づく設計変更で、advisor の判断による）
   - 利用者に、セッションの有効性を決めるランダム値（セッション用のトークン）を持たせる。列は NULL 可の文字列で、SQLite と PostgreSQL の両方で動くマイグレーションにする。ログイン時に未設定なら発行する
   - Devise のセッション復元が、この値と一致するときだけ成功するようにする（値が変わると、以前に発行された Cookie は復元できない）
   - サインアウト時に、認証済みの間に値を再発行してから、アプリ側のセッションを終了する（順序: ヒントの読み取り → 再発行 → サインアウト → 転送）。同じ利用者の他のブラウザのセッションも無効になる（意図した挙動として文書化する）
@@ -219,3 +219,4 @@
 - 失効の結合テスト（5.2）: `test/integration/session_expiry_test.rb`。境界の意味: Devise の無操作は `last_request_at <= timeout_in.ago` で失効（ちょうどの秒は失効）、AbsoluteTimeout は `now - login_at > 上限` で失効（ちょうどは有効）。無操作の失効は、リダイレクトが 2 段（試行先 `/` を経て `/login`）になる（Devise が `flash[:timedout]` 付きで試行先へ転送するため）。`travel_to` はブロックなしで使う（Rails 7.2 はネストを拒否。復元は `after_teardown`）。非 GET の保護ルートは現状ないため、`DELETE /logout` と `POST /` で確認している
 - サインアウトの結合テスト（5.3）: `test/integration/sign_out_flow_test.rb`。Entra の URL は Location を見るだけで辿らない。無操作で失効した後の DELETE /logout は、Devise の FailureApp が `/login` へ 302 する（Entra には行かない。アプリのセッションは失効済みで 500 にならない。Entra の SSO セッションは終了しない縮退を許容する。5.6 の手順書に書く）。CSRF のトークンは、DELETE では `<meta name="csrf-token">` のものを使う（`/login` の `button_to` のフォーム用トークンは 422）。**発見（セキュリティ）**: ステートレスな Cookie セッションのため、サインアウト前に控えた Cookie が、サインアウト後も有効（Devise に `database_authenticatable` がなく `authenticatable_salt` が nil）。無操作の期限は再利用のたびに更新され、絶対時間（8 時間）でのみ切れる。特性テスト「cookie captured before sign-out ... replay outcome」が現状を固定している。advisor の判断（ユーザーの委任）で、タスク 4.4 で堅牢化する（下記）
 - **設計変更（advisor 承認、ユーザーの委任）**: 5.3 の検証でステートレスな Cookie の再利用が判明し、`users.session_token`（`authenticatable_salt`）をサインアウトで再発行してサーバー側で無効にする（タスク 4.4、`design.md` / `research.md` を更新済み）。**`entra-authorization` への Revalidation Trigger**: `users` テーブルに `session_token` 列が増え、`User` が `authenticatable_salt` を上書きし、サインアウトの動作（同じ利用者の全ブラウザのセッション終了）が変わる。authorization 側の `users` へのマイグレーション・モデル・テストと整合を再確認すること
+- セッションのサーバー側無効化（4.4）: `users.session_token`（`has_secure_token`、NULL 可の文字列）を `User#authenticatable_salt` にし、`SessionsController#destroy` は「ヒント読み取り → `rotate_session_token!`（認証済みの間）→ `sign_out`（`ensure` で必ず実行）→ 303」。再発行の失敗でもサインアウトは行い、ログはクラス名のみ。サインイン時は再発行しない（同じ利用者の全ブラウザが 1 つの値を共有し、どこでサインアウトしても全て終了する。意図した挙動）。`from_identity` が nil の既存行にも値を発行する。マスク: `session_token` は既存の `:token` フィルタで `inspect` / ログ / パラメータから伏せられる（テストで確認）。残余リスク: 期限切れでセッションが既にない状態のサインアウトでは再発行されない（Cookie は無操作 / 絶対時間で有界。テストのコメントに記録）。5.3 の特性テストは「再利用するとログイン画面へ転送」に反転済み。下流（`entra-authorization`）は `users` へのマイグレーション・モデルとの整合を再確認すること

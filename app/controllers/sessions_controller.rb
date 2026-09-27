@@ -19,8 +19,19 @@ class SessionsController < ApplicationController
   def destroy
     logout_hint = warden.session(:user)["logout_hint"] if warden.authenticated?(:user)
 
-    # End the app session first: it must not depend on Entra ID.
-    sign_out
+    # Invalidate every earlier session cookie of this user (server side) while
+    # still authenticated. Fail-safe: the app sign-out below always runs, even
+    # if the rotation fails (only the exception class is logged, never the
+    # message). Not reachable for an already expired session (residual risk,
+    # bounded by the idle/absolute timeouts).
+    begin
+      current_user.rotate_session_token! if warden.authenticated?(:user)
+    rescue StandardError => e
+      Rails.logger.error("Session token rotation failed: #{e.class}")
+    ensure
+      # End the app session first: it must not depend on Entra ID.
+      sign_out
+    end
 
     url = EntraAuth::LogoutUrl.build(logout_hint: logout_hint)
     if url

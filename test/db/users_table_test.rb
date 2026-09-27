@@ -19,13 +19,17 @@ class UsersTableTest < ActiveSupport::TestCase
 
   test "users table has expected columns and no credential columns" do
     cols = conn.columns(:users).index_by(&:name)
-    assert_equal %w[created_at email id name oid tid updated_at], cols.keys.sort
+    assert_equal %w[created_at email id name oid session_token tid updated_at], cols.keys.sort
     assert_equal false, cols["tid"].null
     assert_equal false, cols["oid"].null
     assert_equal true, cols["name"].null
     assert_equal true, cols["email"].null
     assert_equal :string, cols["tid"].type
     assert_equal :string, cols["oid"].type
+    # Task 4.4: server-side session invalidation token (nullable string, no default).
+    assert_equal :string, cols["session_token"].type
+    assert_equal true, cols["session_token"].null
+    assert_nil cols["session_token"].default
   end
 
   test "unique index on (tid, oid) exists" do
