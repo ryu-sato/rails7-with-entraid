@@ -27,12 +27,16 @@ module EntraAuth
     # Keys the gem itself emits (:csrf_detected, IdP errors such as
     # :access_denied, token endpoint errors such as :invalid_grant) pass through.
     def request_phase
+      return fail!(:invalid_configuration) if configuration_incomplete?
+
       super
     rescue StandardError => e
       fail!(failure_key_for(e), e)
     end
 
     def callback_phase
+      return fail!(:invalid_configuration) if configuration_incomplete?
+
       super
     rescue StandardError => e
       # An error raised by the downstream app (call_app!) is not an
@@ -52,6 +56,14 @@ module EntraAuth
     end
 
     private
+
+    # An incomplete configuration must fail before any external communication:
+    # a blank issuer would otherwise send the gem into WebFinger discovery
+    # against a bogus host. Only the options are inspected (set by the caller).
+    def configuration_incomplete?
+      client = options.client_options
+      [ options.issuer, client&.identifier, client&.secret, client&.redirect_uri ].any? { |v| v.to_s.strip.empty? }
+    end
 
     # The stock gem merges the userinfo (Microsoft Graph) response into the ID
     # token claims and fails sign-in when Graph is unreachable. Sign-in must

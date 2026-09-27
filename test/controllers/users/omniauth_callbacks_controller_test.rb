@@ -309,6 +309,15 @@ class UsersOmniauthCallbacksControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "invalid_configuration without an exception shows the failed message and logs key and no error class" do
+    OmniAuth.config.mock_auth[:openid_connect] = :invalid_configuration
+    log = capture_rails_log { get CALLBACK }
+    assert_equal new_user_session_url, response.location
+    assert_equal fixed(:failed), flash[:alert]
+    line = log.lines.grep(/failure key=/).join
+    assert_includes line, "key=invalid_configuration error=none"
+  end
+
   test "the failure message is fixed and free of tokens or exception text" do
     OmniAuth.config.mock_auth[:openid_connect] = :invalid_credentials
     get CALLBACK
