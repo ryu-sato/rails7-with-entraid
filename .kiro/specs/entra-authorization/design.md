@@ -5,7 +5,7 @@
 
 **Purpose**: Entra ID でログインできる人を、ロールごとの権限で出し分け・拒否できる状態にする。
 **Users**: 開発チーム（ロール定義・権限定義・方式選択）、運用者（Entra ID 設定・拒否ログの確認）、利用者（ログイン拒否理由の確認、権限なしの通知）。
-**Impact**: `entra-authentication` が提供するログイン callback の拡張点に「ロール同期」を 1 か所差し込み、`User` にロール配列を追加し、`ApplicationController` に権限なしの共通処理を加える。
+**Impact**: `entra-authentication` が提供するサインイン可否ゲートにアダプタを 1 か所登録して「ロール同期」を接続し、`User` にロール配列を追加し、`ApplicationController` に権限なしの共通処理を加える。
 
 ### Goals
 - roles クレーム方式 / groups クレーム方式を、設定で切り替えられる 1 つのインターフェースの背後に置く（3, 4, 5）
@@ -35,7 +35,7 @@
 - 業務リソースごとの権限（`Ability` への追記はドメイン機能側の spec が行う）
 
 ### Allowed Dependencies
-- Upstream: `entra-authentication` が提供する `User` モデル、callback の拡張点、`current_user`、失敗ハンドリング
+- Upstream: `entra-authentication` が提供する `User` モデル、サインイン可否ゲート（`EntraAuth::SignInGate`）、`current_user`、失敗ハンドリング。ゲートの契約: `register(callable)`、callable は `(identity, user) -> Decision`、ゲートは自分の変更を受理・拒否のどちらでも自分で保存する、拒否の `message` は利用者にそのまま表示される、例外は `:gate_error` の拒否になる
 - gem: cancancan 3.6.x、config 5.6.x
 - ID token クレーム（`auth.extra.raw_info` のうち `roles` / `groups` / `_claim_names` / `_claim_sources` の 4 キーのみ）
 - 依存方向: `Role` ← `Authorization::*`（Claims / Resolvers / RoleSync）← callback。`Ability` は `Role` のみに依存し、`Authorization::*` に依存しない。`Authorization::*` は `Ability` とコントローラに依存しない
@@ -50,14 +50,16 @@
 ## Architecture
 
 ### Existing Architecture Analysis
-`rails new` 直後で認証は未実装。`entra-authentication` の設計はこれから作成されるため、callback の拡張点は本 spec が「呼び出し契約」として先に定義し、authentication の設計がそれに合わせる。`structure.md` に従い、独自の層は作らず `app/models`（PORO を含む）、`app/controllers/concerns`、`config/initializers` に置く。
+`rails new` 直後で認証は未実装。`entra-authentication` は実装済みで、サインイン可否ゲート（`EntraAuth::SignInGate`）が拡張点として提供されている。本 spec はこのゲートに合わせて接続する（当初は callback への 1 行呼び出しを想定していたが、ゲートの登録に置き換えた）。`structure.md` に従い、独自の層は作らず `app/models`（PORO を含む）、`app/controllers/concerns`、`config/initializers` に置く。
 
 ### Architecture Pattern & Boundary Map
 
 ```mermaid
 graph TB
     EntraId[Entra ID token claims] --> Callback[OIDC callback owned by authentication]
-    Callback --> RoleSync[Authorization RoleSync]
+    Callback --> Gate[SignInGate owned by authentication]
+    Gate --> Adapter[Authorization SignInGateAdapter]
+    Adapter --> RoleSync[Authorization RoleSync]
     RoleSync --> Claims[Authorization Claims]
     RoleSync --> Resolver{role source setting}
     Resolver --> RolesClaim[RolesClaimResolver]
@@ -100,7 +102,8 @@ app/
 │   ├── ability.rb                                # ロール → 権限（cancancan Ability）
 │   └── authorization/
 │       ├── claims.rb                             # raw_info から 4 キーだけを取り出す値オブジェクト（inspect は伏せる）
-│       ├── role_sync.rb                          # 解決 → 共通規則 → 保存 / 拒否 → 記録。callback から呼ばれる唯一の入口
+│       ├── role_sync.rb                          # 解決 → 共通規則 → 保存 / 拒否 → 記録。ロール導出の唯一の入口
+│       ├── sign_in_gate_adapter.rb               # SignInGate の callable。RoleSync の結果を Decision に変換する薄いアダプタ
 │       ├── result.rb                             # Synced / Rejected / Candidates の結果型
 │       └── resolvers/
 │           ├── roles_claim_resolver.rb           # roles クレーム方式の候補抽出
@@ -112,7 +115,7 @@ app/
 config/
 ├── initializers/
 │   ├── config.rb                                 # config gem の初期化（generator 生成）
-│   └── authorization.rb                          # 方式・マッピングの起動時検証（config.after_initialize 内で実行）
+│   └── authorization.rb                          # 方式・マッピングの起動時検証（config.after_initialize 内）と、SignInGate へのアダプタ登録（呼び出しは遅延評価）
 ├── settings.yml                                  # group_role_map の既定（role_source は既定値を置かない）
 ├── settings/{development,test,production}.yml    # 環境別の上書き。role_source は各環境で明示する
 └── locales/authorization.{en,ja}.yml             # 拒否理由と権限なしのメッセージ
@@ -132,7 +135,7 @@ test/
 - `Gemfile` / `Gemfile.lock` — `cancancan ~> 3.6`、`config ~> 5.6` を追加
 - `app/controllers/application_controller.rb` — `AuthorizationHandling` を include
 - `app/models/user.rb`（authentication が作成）— 変更なし。`roles` は列として利用するのみ
-- OIDC callback コントローラ（authentication が所有）— 拡張点の 1 行で `Authorization::RoleSync.call` を呼び、`Rejected` のとき失敗ハンドリングへ渡す。この呼び出し以外は変更しない
+- authentication のコードは変更しない。接続は `config/initializers/authorization.rb` での `EntraAuth::SignInGate.register` のみ（authentication の Implementation Notes「SignInGate（2.5）」に従う）
 - `.gitignore` — `config/settings.local.yml`、`config/settings/*.local.yml` を追加
 
 ## System Flows
@@ -140,11 +143,14 @@ test/
 ```mermaid
 sequenceDiagram
     participant Cb as Callback
+    participant Gate as SignInGate
+    participant Ad as Adapter
     participant Sync as RoleSync
     participant Res as Resolver
     participant U as User
-    participant Fail as Failure handling
-    Cb->>Sync: call user and raw_info
+    Cb->>Gate: evaluate identity and user
+    Gate->>Ad: call identity and user
+    Ad->>Sync: call user and identity claims
     Sync->>Res: candidates from claims
     alt overage detected
         Res-->>Sync: Rejected groups_overage
@@ -155,17 +161,21 @@ sequenceDiagram
     alt rejected or empty
         Sync->>U: roles to empty
         Sync->>Sync: log reason and user id
-        Sync-->>Cb: Rejected reason
-        Cb->>Fail: reason message and return to sign in
+        Sync-->>Ad: Rejected reason
+        Ad-->>Gate: reject with reason message
+        Gate-->>Cb: rejected decision
+        Cb->>Cb: return to sign in with message
     else roles present
         Sync->>U: roles replaced
-        Sync-->>Cb: Synced roles
+        Sync-->>Ad: Synced roles
+        Ad-->>Gate: accept
+        Gate-->>Cb: accepted decision
         Cb->>Cb: sign in by authentication
     end
 ```
 
 **Flow-level decisions**:
-- `sign_in` は `Synced` を受け取った後にのみ行う（前提条件として authentication が守る）。これにより 6.1, 7.1 の「ログイン済みにしない」が成立する
+- `sign_in` はゲートが受理した後にのみ行われる（authentication の callback の既存の挙動）。これにより 6.1, 7.1 の「ログイン済みにしない」が成立する。ゲートは `User` の特定・作成の後、`sign_in` の前に評価される
 - 拒否時は保存済みロールを空にする。他ブラウザに旧セッションが残っても `Ability` が全操作を拒否する（6.3, 7.3, 9.6）
 
 ## Requirements Traceability
@@ -236,6 +246,7 @@ sequenceDiagram
 | Role | Model | ロール名の定義と絞り込み | 1.1, 1.3, 2.3, 2.4, 3.3, 4.4 | なし | Service |
 | Authorization::Claims | Model | raw_info から権限判断用の 4 キーだけを取り出す | 8.2, 12.1, 12.3 | raw_info (P0) | Service |
 | Resolvers (2) | Model | 方式ごとの候補ロール名の抽出と overage 検知 | 3.1-3.4, 4.1-4.6, 7.1, 7.4 | Claims (P0), Settings (P0, groups のみ) | Service |
+| Authorization::SignInGateAdapter | Model | ゲートと RoleSync の接続 | 2.1, 6.1, 6.2, 7.1, 7.2, 8.1, 8.3 | SignInGate (P0), RoleSync (P0), I18n (P0) | Service |
 | Authorization::RoleSync | Model | 共通規則の適用、保存 / 拒否、記録 | 2.1-2.5, 5.1, 5.4, 6.1, 6.3, 6.4, 7.1, 7.3, 7.5, 8.4, 12.1, 12.2 | Role (P0), Resolvers (P0), User (P0) | Service |
 | Authorization initializer | Config | 方式と設定の起動時検証 | 4.1, 4.4, 5.2, 5.3 | Settings (P0), Role (P0) | State |
 | Ability | Model | ロール → 権限 | 9.1, 9.2, 9.6, 9.7 | Role (P0), cancancan (P0) | Service |
@@ -334,7 +345,7 @@ end
 - `sign_in` を行わない。呼び出し側が結果に従う
 
 **Dependencies**
-- Inbound: OIDC callback（authentication）— ログイン処理中の唯一の呼び出し (P0)
+- Inbound: SignInGateAdapter — ログイン処理中の唯一の呼び出し (P0)
 - Outbound: Role, Claims, Resolvers, User (P0)
 - External: `Settings.authorization.*` (P0)
 
@@ -351,14 +362,36 @@ module Authorization
   end
 end
 ```
-- Preconditions: `user` は authentication が特定・作成済みで、`sign_in` は未実行。`raw_info` は署名検証済み ID token を含む `auth.extra.raw_info`
+- Preconditions: `user` は authentication が特定・作成済みで、`sign_in` は未実行。`raw_info` は検証済み ID token のクレーム（authentication では `identity.claims`）
 - Postconditions: `Synced` のとき `user.roles == roles` かつ `roles` は非空で `Role::NAMES` の部分集合。`Rejected` のとき `user.roles == []`（`user` が保存済みの場合）
 - Invariants: 同じ入力から常に同じ結果になる（外部状態は `Settings` のみ）
 
 **Implementation Notes**
-- Integration: authentication の失敗ハンドリングには `reason` から I18n キー `authorization.rejections.<reason>` を渡す。ログイン画面へ戻す遷移（8.3）は authentication が行う
+- Integration: `reason` から I18n キー `authorization.rejections.<reason>` の文言を作り、アダプタが `SignInGate.reject` に渡す。ログイン画面へ戻す遷移（8.3）は authentication の callback が行う（拒否時はセッションなしでログイン画面へ 303）
 - Validation: 方式は `Settings.authorization.role_source`（`"roles"` / `"groups"`）で選ぶ。起動時に検証済みのため、実行時に未知の値は来ない
 - Risks: 一時的な設定誤りで全員が拒否される。起動時の警告と手順書の事前確認で緩和する
+
+#### Authorization::SignInGateAdapter
+
+| Field | Detail |
+|-------|--------|
+| Intent | authentication のサインイン可否ゲートと RoleSync を接続する |
+| Requirements | 2.1, 6.1, 6.2, 7.1, 7.2, 8.1, 8.3 |
+
+**Responsibilities & Constraints**
+- `call(identity, user)` で `RoleSync.call(user:, raw_info: identity.claims)` を呼ぶ。人の同定には触れない（`identity.claims` は `roles` / `groups` などの読み取りにのみ使う）
+- `Synced` なら `SignInGate.accept`、`Rejected` なら `SignInGate.reject(reason:, message: I18n.t("authorization.rejections.<reason>"))`
+- 保存は `RoleSync` が受理・拒否のどちらでも行う（ゲートの契約）。メッセージは固定文言のみ（クレームや GUID を含めない）
+- 登録は `config/initializers/authorization.rb` で 1 回。呼び出しは遅延評価（リロード対象の定数を起動時に参照しない）。テストは各テストの前後でゲートが `reset!` されるため、必要なテストで再登録する
+
+**Contracts**: Service [x]
+```ruby
+module Authorization
+  module SignInGateAdapter
+    def self.call(identity: EntraAuth::VerifiedIdentity, user: User) -> EntraAuth::SignInGate::Decision
+  end
+end
+```
 
 #### Ability
 
@@ -483,6 +516,6 @@ authorization:
 
 ## Open Questions / Risks
 - **初期ロール名**: `Role::NAMES` の具体値は要件にない。実装時は仮に `admin` と `member` の 2 つで作成し、ドメイン機能の spec で確定する
-- **authentication との契約**: `RoleSync.call` の呼び出し位置、`Rejected` を失敗ハンドリングへ渡す形、ログイン画面へ戻す遷移は authentication の設計で確定する。不一致があれば本 spec の Revalidation Triggers に従い再確認する
+- **authentication との契約（解決済み）**: authentication の実装が `SignInGate`（`register` / `evaluate` / `Decision`）を提供した。本 spec はアダプタを登録して接続する。ゲートの契約が変わる場合は Revalidation Triggers に従い再確認する
 - **既定ロケール**: アプリの既定ロケールは未設定（`en`）。拒否理由は `en` / `ja` の両方を用意する。表示言語の決定は本 spec の対象外
 - **`check_authorization` の強制**: 最初のドメイン機能の spec で判断する（research.md）

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-> 前提: `entra-authentication` が実装済みであること（`users` テーブル、OIDC callback の拡張点、`current_user`、失敗ハンドリング）。タスク 1.3 と 4.1 はその成果物に依存する。
+> 前提: `entra-authentication` の実装（`users` テーブル、サインイン可否ゲート、callback、失敗ハンドリング）。実装済みの成果物を利用する。接続は authentication のコードを変更せず、ゲートへのアダプタ登録で行う。
 > ロール名（`admin` / `member`）と初期の権限定義は仮置きで、ドメイン機能の spec で確定する（design.md「Open Questions / Risks」）。
 
 - [ ] 1. Foundation: 依存 gem・設定・ロール定義・データ基盤
@@ -22,7 +22,6 @@
   - `users` にロール名の配列を保持する JSON カラムを、null 不可・既定は空配列で追加する（別マイグレーション）
   - `entra-authentication` の `users` 作成マイグレーションより後に実行される
   - 既存行が空配列で導入され、SQLite で読み書きできる。PostgreSQL（Dev Container）でも同じマイグレーションが通り、既定値と読み書きが動く
-  - _Depends: entra-authentication の users テーブル_
   - _Requirements: 1.2, 1.4_
 
 - [ ] 1.4 方式・マッピング設定の起動時検証と環境別の方式指定
@@ -93,13 +92,13 @@
   - _Requirements: 2.1, 2.2, 2.5, 5.1, 5.4, 6.1, 6.3, 6.4, 7.1, 7.3, 7.5, 8.4, 12.1, 12.2_
 
 - [ ] 4. Integration: ログイン処理への接続
-- [ ] 4.1 OIDC callback へのロール同期の接続
-  - authentication の callback の拡張点で、利用者の特定・作成後、ログイン確立の前にロール同期を呼び出す。ログイン確立は同期が成功した場合のみ行う
-  - 拒否された場合は理由に対応する文言を失敗ハンドリングへ渡し、利用者を再試行できるログイン画面に戻す。ログイン済みの状態にはしない
-  - callback への変更はこの呼び出しに限る
+- [ ] 4.1 サインイン可否ゲートへのアダプタ作成と登録
+  - authentication のサインイン可否ゲートに登録する薄いアダプタを作る。ロール同期の結果を受理・拒否の判定に変換し、拒否では理由に対応する固定文言を付ける
+  - アプリの初期化処理でゲートに登録する。ゲートの評価時に初めてロール同期を参照する（リロード対象の定数を起動時に参照しない）。authentication のコードは変更しない
+  - テストはゲートが各テストの前後でリセットされるため、必要なテストで登録し直す
   - ロールを持つ利用者はログインでき、`current_user` のロールが最新になる。ロールなし・overage の利用者はログイン画面に戻り、理由の文言が表示され、ログイン済みにならない
-  - _Boundary: OIDC callback（authentication 所有の拡張点 1 か所）_
-  - _Depends: 2.5, 3.1, entra-authentication の callback 拡張点と失敗ハンドリング_
+  - _Boundary: SignInGateAdapter_
+  - _Depends: 2.5, 3.1_
   - _Requirements: 2.1, 6.1, 6.2, 7.1, 7.2, 8.1, 8.3_
 
 - [ ] 5. Validation: 統合テストと運用文書
