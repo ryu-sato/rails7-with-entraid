@@ -562,12 +562,12 @@ end
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
 | GET | /login | — | 200 ログイン画面 | 503 設定不備 |
-| DELETE | /logout | 認証トークン | 302 で Entra ID の logout URL | — |
+| DELETE | /logout | 認証トークン | 303 で Entra ID の logout URL（`head :see_other, location:`）。未サインインなら、ヒントなしの URL、または設定不備なら `/signed_out` | 422（トークンなし） |
 | GET | /signed_out | — | 200 サインアウト完了 | — |
 
 **Implementation Notes**
 - Integration: `devise_scope :user` の中でルート名 `new_user_session` / `destroy_user_session` を付ける。これにより Devise の FailureApp が `/login` へ誘導する。サインアウトのボタンは `data: { turbo: false }`（外部ドメインへの遷移のため）
-- Validation: 未サインイン・失効済みで `destroy` を呼んでも失敗せず、`signed_out` 相当へ戻ること
+- Validation: 一度もサインインしていない状態で `destroy` を呼んでも失敗せず、ヒントなしの Entra ID の URL（設定不備なら `/signed_out`）へ 303 で転送されること。無操作・絶対時間で失効した後の `destroy` は、Devise の FailureApp が `/login` へ 302 で誘導し（Entra ID 側のセッションは終了しない縮退。アプリ側は失効済みで、500 にならない）、`session_token` は再発行されない（残余リスク。Cookie は無操作 / 絶対時間で有界）
 - Risks: `logout_hint` がない場合は Entra ID 側でアカウント選択が出る（縮退）。7.1・7.2 は満たす
 
 #### ApplicationController / HomeController（要約）
@@ -668,3 +668,14 @@ end
 - アプリの既定ロケール（`config.i18n.default_locale`）。本 spec は `ja` / `en` の両方の文言を提供し、既定は変更しない
 - セッション寿命の既定値（無操作 30 分、絶対 8 時間）は暫定。運用要件で見直す
 - brief と roadmap にある `id_token_hint` の記述は、本設計で `logout_hint` に置き換わった（`research.md` の Design Decisions 参照）
+
+## As-built Notes（実装との差分。実装フェーズで確定した内容）
+設計の判断は変えず、実装で追加・確定した点を記録する（詳細と経緯は `tasks.md` の Implementation Notes と `research.md`）。
+
+- **Strategy の追加の上書き**: `fail!`（OmniAuth の失敗ログから例外メッセージを除き、`Authentication failure! <整形した key>: <例外クラス>` にする。env の 3 キーと `on_failure` の呼び出し・戻り値は gem と同一）、`discover!` / `public_key`（discovery・jwks の失敗を `:discovery_failed` に印付けして再送出）、`user_info`（検証済み ID token のクレームのみ使い、userinfo を呼ばない）、設定不備の fail-fast（`:invalid_configuration`）。いずれも `EntraAuth::Strategy` の内部で、Service Interface（`request_phase` / `callback_phase`）は変わらない
+- **`VerifiedIdentity`**: `oid` / `tid` は trim + 小文字に正規化して保持する（`(tid, oid)` の重複を大文字小文字で作らないため）。`claims` は生の値を保持する。識別には `identity.oid` / `identity.tid` を使う
+- **`SessionsController#destroy`**: 再発行が失敗してもサインアウトする（`ensure`）。失敗時のログはクラス名のみ
+- **ログ**: `filter_parameters` に `code` / `state` / `nonce`（完全一致の正規表現）、`login_hint`、`error_description` / `error_uri` を追加。IdP 由来の失敗キーはログ用に `[\w.-]` 64 文字へ整形する（ログ注入対策）
+- **テスト方針**: サインイン・失効・サインアウトの結合テストは、`OmniAuth.config.test_mode` を使わず、実際の Strategy を WebMock のスタブ IdP（`OidcProviderStub`）に対して通す。`test_mode` を使うのは `access_protection_test.rb` とコールバックのコントローラのテストのみ
+- **File Structure Plan に載っていない追加物**: `db/migrate/20260927000000_add_session_token_to_users.rb`、`config/locales/{sessions,home}.{ja,en}.yml`、`test/support/{oidc_provider_stub,strategy_rack_harness,sessions_test_helpers}.rb`、`test/` 配下の各テスト（initializers・locales・docs・integration・controllers・models・db・lib）、`README.md` の 1 行
+- **未対応のフォローアップ（受容済み。追跡する）**: `openid_connect` の広い `rescue StandardError` は、DB エラーもログ（ERROR）にのみ落とす（`Rails.error.report(e, handled: true)` で監視に届ける案）。`sign_in` 成功後の例外で、サインイン済みのまま失敗文言になりうる（rescue 内で `sign_out` する案。到達可能性は極めて低い）。Entra ID の `form_post` を採用する場合は、コールバックに CSRF の skip が必要。実 Entra ID テナントでの確認（`docs/entra_id_setup.md` のチェックリスト）は未実施
