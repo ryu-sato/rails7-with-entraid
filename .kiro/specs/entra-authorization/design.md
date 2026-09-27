@@ -105,6 +105,7 @@ app/
 │       ├── role_sync.rb                          # 解決 → 共通規則 → 保存 / 拒否 → 記録。ロール導出の唯一の入口
 │       ├── sign_in_gate_adapter.rb               # SignInGate の callable。RoleSync の結果を Decision に変換する薄いアダプタ
 │       ├── result.rb                             # Synced / Rejected / Candidates の結果型
+│       ├── role_source.rb                        # role_source / group_role_map の読み取り・検証（起動時検証と RoleSync が共用）
 │       └── resolvers/
 │           ├── roles_claim_resolver.rb           # roles クレーム方式の候補抽出
 │           └── groups_claim_resolver.rb          # groups クレーム方式の候補抽出と overage 検知
