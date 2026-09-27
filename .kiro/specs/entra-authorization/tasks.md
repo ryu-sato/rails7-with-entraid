@@ -4,7 +4,7 @@
 > ロール名（`admin` / `member`）と初期の権限定義は仮置きで、ドメイン機能の spec で確定する（design.md「Open Questions / Risks」）。
 
 - [ ] 1. Foundation: 依存 gem・設定・ロール定義・データ基盤
-- [ ] 1.1 cancancan と config の導入、設定ファイル構成の用意
+- [x] 1.1 cancancan と config の導入、設定ファイル構成の用意
   - cancancan 3.6 系と config 5.6 系を追加し、config の初期化と設定ファイル（共通・環境別・ローカル上書き）の構成を用意する
   - 共通設定にはグループ → ロールの対応表（既定は空）だけを置き、方式の指定（role_source）には既定値を置かない
   - ローカル上書きの設定ファイルをバージョン管理の対象外にする
