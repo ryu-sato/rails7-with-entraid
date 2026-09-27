@@ -38,7 +38,9 @@ module Users
       key = request.env["omniauth.error.type"]
       error = request.env["omniauth.error"]
       # Key and exception class only: never the message, claims or tokens (4.3, 4.4).
-      Rails.logger.warn("[Users::OmniauthCallbacks] failure key=#{key.to_s.presence || 'unknown'} " \
+      # The key can be the IdP's `error` parameter: reduce it to a safe token.
+      log_key = key.to_s.gsub(/[^\w.-]/, "_").first(64)
+      Rails.logger.warn("[Users::OmniauthCallbacks] failure key=#{log_key.presence || 'unknown'} " \
                         "error=#{error ? error.class.name : 'none'}")
       flash[:alert] = t_failure(key.to_s == "access_denied" ? :cancelled : :failed)
       redirect_to after_omniauth_failure_path_for(resource_name), status: :see_other

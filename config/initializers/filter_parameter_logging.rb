@@ -14,3 +14,9 @@ Rails.application.config.filter_parameters += [
 Rails.application.config.filter_parameters += [
   /\Acode\z/, /\Astate\z/, /\Anonce\z/, :login_hint
 ]
+
+# IdP error callback parameters: error_description / error_uri carry free text
+# from the IdP (e.g. AADSTS messages) and appear in the request log line.
+Rails.application.config.filter_parameters += [
+  /\Aerror_description\z/, /\Aerror_uri\z/
+]

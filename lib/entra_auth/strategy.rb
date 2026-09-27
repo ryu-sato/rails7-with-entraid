@@ -55,6 +55,23 @@ module EntraAuth
       raise
     end
 
+    # OmniAuth's own #fail! logs "<key>: <Class>, <exception.message>" through
+    # OmniAuth.logger (STDOUT by default, separate from Rails.logger); the
+    # message can carry IdP / HTTP body text (AADSTS...), claims or token
+    # fragments. Same behavior as the gem (env keys, on_failure), but the log
+    # line has the key and the exception CLASS only. The key can come from the
+    # IdP's `error` parameter, so it is reduced to a safe token.
+    def fail!(message_key, exception = nil)
+      env["omniauth.error"] = exception
+      env["omniauth.error.type"] = message_key.to_sym
+      env["omniauth.error.strategy"] = self
+
+      log_key = message_key.to_s.gsub(/[^\w.-]/, "_").first(64)
+      log :error, "Authentication failure! #{log_key}: #{exception ? exception.class : 'none'}"
+
+      OmniAuth.config.on_failure.call(env)
+    end
+
     private
 
     # An incomplete configuration must fail before any external communication:

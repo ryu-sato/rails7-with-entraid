@@ -36,7 +36,9 @@ class SessionsController < ApplicationController
     url = EntraAuth::LogoutUrl.build(logout_hint: logout_hint)
     if url
       # The only external redirect in the app: Entra ID's sign-out endpoint.
-      redirect_to url, allow_other_host: true, status: :see_other
+      # head, not redirect_to: redirect_to logs "Redirected to <url>", and the
+      # URL carries the logout_hint.
+      head :see_other, location: url
     else
       redirect_to signed_out_path, status: :see_other
     end
