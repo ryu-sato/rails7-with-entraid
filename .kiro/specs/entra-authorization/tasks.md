@@ -42,7 +42,7 @@
   - _Boundary: Authorization Claims, Authorization Result_
   - _Requirements: 7.1, 8.2, 12.1, 12.3_
 
-- [ ] 2.2 roles クレーム方式のロール抽出
+- [x] 2.2 roles クレーム方式のロール抽出
   - roles クレームの値をそのまま候補ロール名として返す。groups の内容は参照しない
   - roles なし・値が空の場合は空の候補を返す
   - 単体テストで、通常値・roles なし・未定義値のみ・groups が同時にあっても無視されることが確認できる
