@@ -285,11 +285,11 @@ end
 
 | Field | Detail |
 |-------|--------|
-| Intent | `auth.extra.raw_info` から `roles` / `groups` / `_claim_names` / `_claim_sources` だけを型検査して取り出す |
+| Intent | `auth.extra.raw_info` から `roles` / `groups` / `_claim_names`（overage 判定）だけを型検査して取り出す。`_claim_sources` は使わず保持しない |
 | Requirements | 8.2, 12.1, 12.3 |
 
 **Responsibilities & Constraints**
-- 4 キー以外は保持しない（userinfo 由来の属性を権限判断に使わない）
+- `roles` / `groups` の文字列配列と overage の真偽値以外は保持しない（userinfo 由来の属性を権限判断に使わない）
 - 型が想定と異なる値（`roles` が配列でない等）は空として扱う
 - `inspect` / `to_s` は内容を伏せる（ログへの混入防止）
 
@@ -354,9 +354,12 @@ end
 
 ```ruby
 module Authorization
-  Candidates = Data.define(:names)   # names: Array[String]
-  Synced     = Data.define(:roles)   # roles: Array[String]（保存済み、非空）
-  Rejected   = Data.define(:reason)  # reason: :no_roles | :groups_overage
+  module Result
+    REASONS  = %i[no_roles groups_overage].freeze
+    Candidates = Data.define(:names)   # names: Array[String]
+    Synced     = Data.define(:roles)   # roles: Array[String]（保存済み、非空。空は ArgumentError）
+    Rejected   = Data.define(:reason)  # reason: REASONS のいずれか（他は ArgumentError）
+  end
 
   module RoleSync
     def self.call(user: User, raw_info: Hash[String, untyped]) -> Synced | Rejected
